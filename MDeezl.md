@@ -6,10 +6,10 @@ We make a small program that takes a given path for a directory/repo and gives a
 
 So we can get both a printout of the structure of the repo and a plain text printout of the contents of the repository in .md (ex.):
  
-```Kinesin/```
-```├── .github/                        # ex comment 1```
-```│   └── workflows/              # ex comment 2```
-```└── README.md                # ex comment 3```
+`Kinesin/`
+`├── .github/                        # ex comment 1`
+`│   └── workflows/              # ex comment 2`
+`└── README.md                # ex comment 3`
 
 ---
 File: .github/workflows/
