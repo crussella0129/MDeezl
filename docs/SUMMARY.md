@@ -1,0 +1,9 @@
+# Summary
+- [Project Book](README.md)
+- [Intents](intents/README.md)
+- [Tasks](work/tasks.md)
+- [Completed tasks](work/completed-tasks.md)
+- [Sprint 0](sprints/s0/sprint-meta.md)
+- [INT-0001 Markdown repository context bundle](intents/INT-0001-markdown-repo-context-bundle.md)
+- [INT-0002 Git and remote sources](intents/INT-0002-git-and-remote-sources.md)
+- [INT-0003 LLM-generated scaffold comments](intents/INT-0003-llm-scaffold-comments.md)
