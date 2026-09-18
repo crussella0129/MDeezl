@@ -257,3 +257,12 @@ minus `--include`, with no second hidden mechanism layered on top.
   [INT-0002](INT-0002-git-and-remote-sources.md),
   [INT-0003](INT-0003-llm-scaffold-comments.md), and
   [INT-0004](INT-0004-gitignore-aware-exclusion.md).
+- 2026-09-18: no state change; stays `realized`. Sprint 1's
+  [INT-0004](INT-0004-gitignore-aware-exclusion.md) adds the repository's own
+  `.gitignore` as a second exclusion source. Two of this chapter's criteria are
+  read accordingly, with INT-0004 as the authority rather than this chapter
+  being rewritten: "a single ignore list governs what is omitted" describes the
+  built-in mechanism defined here, and "the same input tree always produces
+  byte-identical output" holds for the same tree and the same git state. The
+  "gitignore parsing" non-goal is fulfilled by INT-0004, by delegation to git
+  rather than by parsing.
