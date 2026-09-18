@@ -50,4 +50,4 @@
   Also the composed both-halves property this task owns. 14 new tests,
   including the two integration tests proving an omitted entry is absent from
   the scaffold *and* the contents, and a re-admitted one present in both.
-- **Commit:** PENDING
+- **Commit:** `1bf6c31ed8f1b22c765f61022f23e8700375d38c`
