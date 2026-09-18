@@ -581,18 +581,66 @@ fn git_ignored(root: &Path, paths: &[String]) -> Result<HashSet<String>, String>
     }
 }
 
+/// Does any entry git was asked about, beneath `node`, come back not ignored?
+/// Entries never queried -- inside a nested repository -- do not count.
+fn has_unreported_descendant(
+    node: &Node,
+    ignored: &HashSet<String>,
+    queried: &HashSet<String>,
+) -> bool {
+    node.children.iter().any(|c| {
+        (queried.contains(&c.rel) && !ignored.contains(&c.rel))
+            || (c.kind == Kind::Dir && has_unreported_descendant(c, ignored, queried))
+    })
+}
+
+/// Remove what git reports ignored, top-down, so a pruned directory takes its
+/// subtree -- and any include-matching entry inside it -- with it.
+/// - An entry git ignores that matches `--include` is kept, and so is its whole
+///   subtree: git reports every descendant of an ignored directory, so judging
+///   them one by one would restore an empty directory.
+/// - An included entry git does not ignore gets no such exemption.
+/// - A reported directory holding something git did not report is kept and its
+///   children judged individually. For ordinary names git never reports a
+///   directory holding tracked files; this catches the escaped names (such as
+///   `app/[slug]`) where it can, so a tracked file is never dropped.
+fn prune_gitignored(
+    node: &mut Node,
+    ignored: &HashSet<String>,
+    queried: &HashSet<String>,
+    include: &[String],
+) {
+    node.children.retain_mut(|child| {
+        if ignored.contains(&child.rel) {
+            if include.iter().any(|p| matches(p, &child.name, &child.rel)) {
+                return true;
+            }
+            if child.kind != Kind::Dir || !has_unreported_descendant(child, ignored, queried) {
+                return false;
+            }
+        }
+        if child.kind == Kind::Dir {
+            prune_gitignored(child, ignored, queried, include);
+        }
+        true
+    });
+}
+
 /// Render the whole document before opening the sink, so a failure can never
 /// leave a partial document on stdout. INT-0001 records the peak-memory cost
 /// this accepts.
 fn run(opts: &Options) -> io::Result<()> {
-    let root = walk(opts)?;
+    let mut root = walk(opts)?;
     if opts.use_gitignore {
         let candidates = gitignore_candidates(&opts.root, &root);
         match git_ignored(&opts.root, &candidates) {
             Ok(ignored) if ignored.contains(".") => eprintln!(
                 "mdeezl: gitignore filtering skipped: the scanned directory is itself ignored by the repository"
             ),
-            Ok(_ignored) => {}
+            Ok(ignored) => {
+                let queried: HashSet<String> = candidates.into_iter().collect();
+                prune_gitignored(&mut root, &ignored, &queried, &opts.include);
+            }
             Err(reason) => eprintln!("mdeezl: gitignore filtering skipped: {reason}"),
         }
     }
@@ -1715,6 +1763,182 @@ mod tests {
         GIT_SPAWNS.with(|n| n.set(0));
         run(&opts).unwrap();
         assert_eq!(GIT_SPAWNS.with(|n| n.get()), 1);
+    }
+
+    // ---- Sprint 1 / T-003: pruning ----
+
+    fn f(rel: &str) -> Node {
+        Node {
+            name: rel.rsplit('/').next().unwrap().to_string(),
+            rel: rel.to_string(),
+            kind: Kind::File,
+            unreadable: false,
+            children: Vec::new(),
+        }
+    }
+
+    fn d(rel: &str, children: Vec<Node>) -> Node {
+        Node {
+            kind: Kind::Dir,
+            children,
+            ..f(rel)
+        }
+    }
+
+    /// Every surviving path, sorted.
+    fn surviving(node: &Node) -> Vec<String> {
+        fn visit(n: &Node, out: &mut Vec<String>) {
+            for c in &n.children {
+                out.push(c.rel.clone());
+                visit(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        visit(node, &mut out);
+        out.sort();
+        out
+    }
+
+    /// root/{out/{a.o, deep/b.o}, src/{gen.o, main.rs}, top.o, .cache/{c.bin}, keep.txt}
+    fn prune_fixture() -> Node {
+        d(
+            "",
+            vec![
+                d(
+                    "out",
+                    vec![f("out/a.o"), d("out/deep", vec![f("out/deep/b.o")])],
+                ),
+                d("src", vec![f("src/gen.o"), f("src/main.rs")]),
+                f("top.o"),
+                d(".cache", vec![f(".cache/c.bin")]),
+                f("keep.txt"),
+            ],
+        )
+    }
+
+    /// What git returns for `out/`, `*.o`, `.cache/`: every descendant of an
+    /// ignored directory is listed, as git really does.
+    fn prune_fixture_ignored() -> HashSet<String> {
+        set(&[
+            "out",
+            "out/a.o",
+            "out/deep",
+            "out/deep/b.o",
+            "src/gen.o",
+            "top.o",
+            ".cache",
+            ".cache/c.bin",
+        ])
+    }
+
+    fn pruned_with(include: &[&str]) -> Vec<String> {
+        let mut tree = prune_fixture();
+        let mut queried: HashSet<String> = surviving(&tree).into_iter().collect();
+        queried.insert(".".to_string());
+        prune_gitignored(
+            &mut tree,
+            &prune_fixture_ignored(),
+            &queried,
+            &strings(include),
+        );
+        surviving(&tree)
+    }
+
+    fn sorted(items: &[&str]) -> Vec<String> {
+        let mut v = strings(items);
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn test_prune_gitignored_removes_subtree() {
+        assert_eq!(
+            pruned_with(&[]),
+            sorted(&["src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_include_exempts_subtree() {
+        // Exact name, in the set: the whole out/ subtree survives.
+        assert_eq!(
+            pruned_with(&["out"]),
+            sorted(&[
+                "out",
+                "out/a.o",
+                "out/deep",
+                "out/deep/b.o",
+                "src",
+                "src/main.rs",
+                "keep.txt"
+            ])
+        );
+        // File type: top-level and src/ .o files survive; out/ is still pruned
+        // with the .o files inside it, because pruning is top-down.
+        assert_eq!(
+            pruned_with(&["*.o"]),
+            sorted(&["src", "src/gen.o", "src/main.rs", "top.o", "keep.txt"])
+        );
+        // A path.
+        assert_eq!(
+            pruned_with(&["src/gen.o"]),
+            sorted(&["src", "src/gen.o", "src/main.rs", "keep.txt"])
+        );
+        // Dot-entries, via .cache in the set.
+        assert_eq!(
+            pruned_with(&[".*"]),
+            sorted(&[".cache", ".cache/c.bin", "src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_include_of_unignored_dir_gives_no_exemption() {
+        // src is not in the set, so including it exempts nothing inside it.
+        assert_eq!(
+            pruned_with(&["src"]),
+            sorted(&["src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_ancestor_blocks_include() {
+        let got = pruned_with(&["out/deep/b.o"]);
+        assert!(!got.contains(&"out/deep/b.o".to_string()));
+        assert_eq!(got, sorted(&["src", "src/main.rs", "keep.txt"]));
+    }
+
+    #[test]
+    fn test_prune_gitignored_guard_keeps_unreported_descendant() {
+        // Mirrors git for `*`, `!*/`, `!*.tsx`, then `nested/`: the escaped
+        // app/[slug] is reported while its tracked page.tsx is not.
+        let mut tree = d(
+            "",
+            vec![
+                d(
+                    "app",
+                    vec![d(
+                        "app/[slug]",
+                        vec![f("app/[slug]/page.tsx"), f("app/[slug]/notes.md")],
+                    )],
+                ),
+                d("nested", vec![f("nested/inner.txt")]),
+            ],
+        );
+        // nested/inner.txt was never queried: nested holds a nested repository.
+        let queried = set(&[
+            ".",
+            "app",
+            "app/[slug]",
+            "app/[slug]/page.tsx",
+            "app/[slug]/notes.md",
+            "nested",
+        ]);
+        let ignored = set(&["app/[slug]", "app/[slug]/notes.md", "nested"]);
+        prune_gitignored(&mut tree, &ignored, &queried, &[]);
+        assert_eq!(
+            surviving(&tree),
+            sorted(&["app", "app/[slug]", "app/[slug]/page.tsx"])
+        );
     }
 
     #[test]

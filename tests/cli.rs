@@ -757,3 +757,364 @@ fn test_cli_ignores_ambient_git_environment() {
     assert!(out.status.success());
     assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
 }
+
+// ---- T-003: pruning, end to end ----
+
+/// Stage without committing; literal pathspecs so bracketed names are not globs.
+fn git_add(dir: &Path, paths: &[&str]) {
+    let mut args = vec!["--literal-pathspecs", "add", "-f", "--"];
+    args.extend_from_slice(paths);
+    git(dir, &args);
+}
+
+fn ok_iso(root: &Path, args: &[&str]) -> String {
+    let out = run_iso(root, args);
+    assert!(out.status.success(), "mdeezl failed: {}", stderr_of(&out));
+    stdout_of(&out)
+}
+
+/// Is `rel` present in the content sections?
+fn in_contents(doc: &str, rel: &str) -> bool {
+    doc.contains(&format!("\nFile: {rel}\n"))
+}
+
+/// Is an entry named `name` present in the scaffold?
+fn in_tree(doc: &str, name: &str) -> bool {
+    tree_lines(doc)
+        .iter()
+        .any(|l| l.ends_with(&format!("── {name}")) || l.ends_with(&format!("── {name}/")))
+}
+
+/// `out/`, `*.log`, `!keep.log` -- `out/` is deliberately not on the built-in list.
+fn gitignore_fixture(tag: &str) -> Tmp {
+    let dir = git_repo(tag);
+    put(&dir, ".gitignore", "out/\n*.log\n!keep.log\n");
+    put(&dir, "out/a.o", "object body\n");
+    put(&dir, "app.log", "app log body\n");
+    put(&dir, "keep.log", "keep log body\n");
+    put(&dir, "keep.txt", "keep text body\n");
+    put(&dir, "src/main.rs", "fn main() {}\n");
+    dir
+}
+
+#[test]
+fn test_cli_gitignore_omits_from_both_halves() {
+    require_git!("test_cli_gitignore_omits_from_both_halves");
+    let dir = gitignore_fixture("gi-both");
+    let doc = ok_iso(&dir, &[]);
+    for gone in ["out", "a.o", "app.log"] {
+        assert!(
+            !in_tree(&doc, gone),
+            "{gone} must be absent from the scaffold"
+        );
+    }
+    for gone in ["out/a.o", "app.log"] {
+        assert!(
+            !in_contents(&doc, gone),
+            "{gone} must be absent from the contents"
+        );
+    }
+    assert!(!doc.contains("object body") && !doc.contains("app log body"));
+    for kept in ["keep.log", "keep.txt", "src/main.rs"] {
+        assert!(in_contents(&doc, kept), "{kept} must be present");
+    }
+    assert!(in_tree(&doc, "keep.log") && in_tree(&doc, "keep.txt"));
+}
+
+#[test]
+fn test_cli_gitignore_honours_full_syntax() {
+    require_git!("test_cli_gitignore_honours_full_syntax");
+    let dir = git_repo("gi-syntax");
+    put(&dir, ".gitignore", "*.log\n!keep.log\n**/generated/\n");
+    put(&dir, "sub/.gitignore", "local.tmp\n");
+    let exclude = dir.join(".git/info/exclude");
+    let mut ex = fs::read_to_string(&exclude).unwrap_or_default();
+    ex.push_str("excluded.txt\n");
+    fs::write(&exclude, ex).unwrap();
+    put(&dir, "globalish", "viaconfig.txt\n");
+    // Forward slashes: a Windows backslash path in .git/config is read as escapes.
+    let excludes_file = dir.join("globalish").to_string_lossy().replace('\\', "/");
+    git(&dir, &["config", "core.excludesFile", &excludes_file]);
+    for f in [
+        "app.log",
+        "keep.log",
+        "deep/x/generated/g.txt",
+        "sub/local.tmp",
+        "sub/other.tmp",
+        "excluded.txt",
+        "viaconfig.txt",
+        "plain.txt",
+    ] {
+        put(&dir, f, "x\n");
+    }
+    let doc = ok_iso(&dir, &[]);
+    for gone in [
+        "app.log",
+        "deep/x/generated/g.txt",
+        "sub/local.tmp",
+        "excluded.txt",
+        "viaconfig.txt",
+    ] {
+        assert!(!in_contents(&doc, gone), "{gone} must be absent");
+    }
+    assert!(!in_tree(&doc, "generated"));
+    for kept in ["keep.log", "sub/other.tmp", "plain.txt"] {
+        assert!(in_contents(&doc, kept), "{kept} must be present");
+    }
+}
+
+#[test]
+fn test_cli_scan_subdir_applies_root_rules() {
+    require_git!("test_cli_scan_subdir_applies_root_rules");
+    let dir = git_repo("gi-subdir");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "sub/x.log", "x\n");
+    put(&dir, "sub/keep.txt", "k\n");
+    let doc = ok_iso(&dir.join("sub"), &[]);
+    assert!(!in_contents(&doc, "x.log"));
+    assert!(in_contents(&doc, "keep.txt"));
+}
+
+#[test]
+fn test_cli_tracked_file_matching_pattern_is_bundled() {
+    require_git!("test_cli_tracked_file_matching_pattern_is_bundled");
+    let dir = git_repo("gi-tracked");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "tracked.log", "tracked body\n");
+    git_add(&dir, &["tracked.log"]);
+    let doc = ok_iso(&dir, &[]);
+    assert!(in_contents(&doc, "tracked.log"));
+    assert!(doc.contains("tracked body"));
+}
+
+#[test]
+fn test_cli_tracked_file_inside_ignored_directory() {
+    require_git!("test_cli_tracked_file_inside_ignored_directory");
+    let dir = git_repo("gi-tracked-in-ignored");
+    put(&dir, ".gitignore", "out/\n");
+    put(&dir, "out/keep.txt", "kept body\n");
+    put(&dir, "out/a.o", "object\n");
+    git_add(&dir, &["out/keep.txt"]);
+
+    let doc = ok_iso(&dir, &[]);
+    assert!(in_contents(&doc, "out/keep.txt"));
+    assert!(!in_contents(&doc, "out/a.o"));
+
+    // Scanning out/ itself: it holds tracked content, so git does not report it
+    // ignored -- no skip notice, and filtering still applies inside it.
+    let out = run_iso(&dir.join("out"), &[]);
+    assert!(out.status.success());
+    assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(in_contents(&doc, "keep.txt"));
+    assert!(!in_contents(&doc, "a.o"));
+}
+
+#[test]
+fn test_cli_no_gitignore_restores_paths() {
+    require_git!("test_cli_no_gitignore_restores_paths");
+    let dir = gitignore_fixture("gi-off");
+    let doc = ok_iso(&dir, &["--no-gitignore"]);
+    for back in ["out/a.o", "app.log", "keep.log", "keep.txt"] {
+        assert!(in_contents(&doc, back), "{back} must return");
+    }
+}
+
+#[test]
+fn test_cli_include_beats_gitignore() {
+    require_git!("test_cli_include_beats_gitignore");
+    let dir = gitignore_fixture("gi-include");
+    let doc = ok_iso(&dir, &["--include", "out"]);
+    assert!(in_tree(&doc, "out"));
+    assert!(in_contents(&doc, "out/a.o"));
+    assert!(doc.contains("object body"));
+    assert!(!in_contents(&doc, "app.log"), "other rules still apply");
+}
+
+#[test]
+fn test_cli_include_dot_star_with_gitignore() {
+    require_git!("test_cli_include_dot_star_with_gitignore");
+    let dir = git_repo("gi-dotstar");
+    put(&dir, ".gitignore", ".cache/\n");
+    put(&dir, ".cache/c.bin", "cached\n");
+    let out = run_iso(&dir, &["--include", ".*"]);
+    assert!(out.status.success());
+    assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(in_tree(&doc, ".cache"));
+    assert!(in_contents(&doc, ".cache/c.bin"));
+    assert!(in_tree(&doc, ".git"));
+}
+
+#[test]
+fn test_cli_submodule_contents_not_filtered() {
+    require_git!("test_cli_submodule_contents_not_filtered");
+    let src = git_repo("gi-subsrc");
+    put(&src, "inner.txt", "inner\n");
+    git_add(&src, &["inner.txt"]);
+    git(
+        &src,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-qm",
+            "i",
+        ],
+    );
+
+    let dir = git_repo("gi-submod");
+    put(&dir, ".gitignore", "*.log\n");
+    let src_url = src.to_string_lossy().replace('\\', "/");
+    git(
+        &dir,
+        &[
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            &src_url,
+            "mod",
+        ],
+    );
+    put(&dir, "mod/x.log", "inside submodule\n");
+    put(&dir, "top.log", "top\n");
+
+    let out = run_iso(&dir, &[]);
+    assert!(out.status.success());
+    assert!(
+        out.stderr.is_empty(),
+        "the query must survive: {}",
+        stderr_of(&out)
+    );
+    let doc = stdout_of(&out);
+    assert!(!in_contents(&doc, "top.log"));
+    assert!(
+        in_contents(&doc, "mod/x.log"),
+        "no gitignore inside a submodule"
+    );
+}
+
+#[test]
+fn test_cli_tracked_file_in_escaped_directory_is_kept() {
+    require_git!("test_cli_tracked_file_in_escaped_directory_is_kept");
+    let dir = git_repo("gi-escaped-dir");
+    // The whitelist idiom: git reports app/[slug] ignored (it cannot lstat the
+    // escaped name to apply `!*/`) while the tracked page.tsx is not.
+    put(&dir, ".gitignore", "*\n!*/\n!*.tsx\n!.gitignore\n");
+    put(
+        &dir,
+        "app/[slug]/page.tsx",
+        "export default function Page() {}\n",
+    );
+    put(&dir, "app/[slug]/notes.md", "untracked notes\n");
+    git_add(&dir, &["app/[slug]/page.tsx"]);
+    let doc = ok_iso(&dir, &[]);
+    assert!(in_contents(&doc, "app/[slug]/page.tsx"));
+    assert!(doc.contains("export default function Page"));
+    assert!(!in_contents(&doc, "app/[slug]/notes.md"));
+}
+
+#[test]
+fn test_cli_glob_char_filename_is_literal() {
+    require_git!("test_cli_glob_char_filename_is_literal");
+    let dir = git_repo("gi-globname");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "a1.log", "tracked\n");
+    put(&dir, "a[1].log", "untracked\n");
+    git_add(&dir, &["a1.log"]);
+    let doc = ok_iso(&dir, &[]);
+    assert!(in_contents(&doc, "a1.log"));
+    assert!(!in_contents(&doc, "a[1].log"));
+}
+
+#[test]
+fn test_cli_colon_prefixed_filename_is_a_path() {
+    if cfg!(not(unix)) {
+        eprintln!(
+            "SKIP test_cli_colon_prefixed_filename_is_a_path: this platform \
+             forbids `:` in filenames. The Linux CI leg runs it."
+        );
+        return;
+    }
+    require_git!("test_cli_colon_prefixed_filename_is_a_path");
+    let dir = git_repo("gi-colon");
+    put(&dir, ".gitignore", "secret\n*.log\n");
+    put(&dir, ":secret", "not a pathspec\n");
+    put(&dir, ":x.log", "matched\n");
+    let doc = ok_iso(&dir, &[]);
+    assert!(
+        in_contents(&doc, ":secret"),
+        "as a path, :secret does not match `secret`"
+    );
+    assert!(!in_contents(&doc, ":x.log"));
+}
+
+#[test]
+fn test_cli_newline_in_filename_is_matched() {
+    if cfg!(not(unix)) {
+        eprintln!(
+            "SKIP test_cli_newline_in_filename_is_matched: this platform \
+             forbids newlines in filenames. The Linux CI leg runs it."
+        );
+        return;
+    }
+    require_git!("test_cli_newline_in_filename_is_matched");
+    let dir = git_repo("gi-newline");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "line1\nline2.log", "multi-line name\n");
+    put(&dir, "keep.txt", "k\n");
+    let doc = ok_iso(&dir, &[]);
+    assert!(!doc.contains("multi-line name"));
+    assert!(in_contents(&doc, "keep.txt"));
+}
+
+#[test]
+fn test_cli_large_repo_completes() {
+    require_git!("test_cli_large_repo_completes");
+    let dir = git_repo("gi-large");
+    put(&dir, ".gitignore", "*.o\n");
+    for i in 0..5_000 {
+        let ext = if i % 2 == 0 { "o" } else { "txt" };
+        put(
+            &dir,
+            &format!("data/d{:02}/file_{i:05}.{ext}", i / 100),
+            "x\n",
+        );
+    }
+    let out_dir = tmp_dir("gi-large-out");
+    let doc_path = out_dir.join("doc.md");
+    // Written to -o so the harness never has to drain a large stdout; polling
+    // try_wait while leaving stdout unread would otherwise block the child.
+    let mut cmd = Command::new(EXE);
+    isolate(cmd.arg(&*dir).arg("-o").arg(&doc_path));
+    let mut child = cmd.spawn().expect("failed to run mdeezl");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let status = loop {
+        if let Some(s) = child.try_wait().unwrap() {
+            break s;
+        }
+        if std::time::Instant::now() > deadline {
+            let _ = child.kill();
+            panic!("mdeezl did not finish within 60 s");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    assert!(status.success());
+    let doc = fs::read_to_string(&doc_path).unwrap();
+    assert!(!doc.contains(".o\n"), "no ignored .o file survives");
+    assert_eq!(doc.matches("\nFile: data/").count(), 2_500, "the kept half");
+}
+
+#[test]
+fn test_cli_gitignore_output_is_byte_identical_across_runs() {
+    require_git!("test_cli_gitignore_output_is_byte_identical_across_runs");
+    let dir = gitignore_fixture("gi-determinism");
+    let first = ok_iso(&dir, &[]);
+    let second = ok_iso(&dir, &[]);
+    assert!(!first.is_empty());
+    assert_eq!(first, second);
+}

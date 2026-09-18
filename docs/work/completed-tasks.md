@@ -140,3 +140,24 @@
   `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` alone does not disable
   it; this host has one.
 - **Commit:** `bb5fa86a83cda194dd8040696249b8f04ec7341b`
+
+## T-003 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** `prune_gitignored` removes what git reports ignored, top-down,
+  so an included entry inside a pruned directory is not rescued. An include
+  that matches an entry git ignores exempts that entry's whole subtree; an
+  include that matches an entry git does not ignore exempts nothing. The
+  directory-removal guard keeps a reported directory whenever a queried entry
+  beneath it came back unreported, so a tracked file hidden by an escaped
+  directory name is never dropped. `run` now prunes before rendering, so both
+  halves of the document see the same file set.
+- **Verification:** 20 new tests; 115 in total, all passing, including all 72
+  sprint 0 tests unedited. The Unix-only colon and newline cases skipped on
+  this host with their reasons.
+- **Self-check:** on this repository an untracked `.tmp` probe was omitted by
+  the repo's own `*.tmp` rule while a `.txt` probe was kept, and
+  `--no-gitignore` restored both. The run took 0.2 s with an empty stderr.
+- **Commit:** PENDING
