@@ -2,9 +2,9 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0004
-- **State:** active
+- **State:** realized
 - **Work evidence:** [Sprint 1 build plan](../sprints/s1/sprint-plans/build-plan.md), [T-002 batched gitignore query](../sprints/s1/sprint-plans/build-plan.md#t-002-batched-gitignore-query)
-- **Completion evidence:** none
+- **Completion evidence:** [T-002 completion](../work/completed-tasks.md#t-002-sprint-1), [T-003 completion](../work/completed-tasks.md#t-003-sprint-1), [T-004 completion](../work/completed-tasks.md#t-004-sprint-1)
 - **Code evidence:** [src/main.rs](../../src/main.rs)
 - **Test evidence:** [Sprint 1 test report](../sprints/s1/sprint-tests/test-report.md), [unit](../sprints/s1/sprint-tests/unit-tests.md), [integration](../sprints/s1/sprint-tests/integration-tests.md), [end-to-end](../sprints/s1/sprint-tests/e2e-tests.md)
 - **Documentation evidence:** [README.md](../../README.md)
@@ -322,3 +322,12 @@ directory behaves as MDeezl does today.
   2.55.0, and the four Linux-only cases ran on the Linux leg with no SKIP. All
   eighteen acceptance criteria are mapped in the test report: seventeen to
   executed tests, and the authority criterion to recorded inspection.
+- 2026-09-18: `active → realized`. All eighteen acceptance criteria are proved
+  by the sprint 1 test report: seventeen by executed tests, and the authority
+  criterion by recorded inspection. Unlike sprint 0, the two-OS CI evidence
+  existed before close. Run 35327617895 passed on `ubuntu-latest` and
+  `windows-latest` with git 2.55.0, and the four Linux-only cases ran on the
+  Linux leg with no SKIP. The directory-removal guard's precondition, measured on
+  git 2.54 in planning, was confirmed on 2.55 by a test that runs on whichever
+  git executes it. Toolchain drift found along the way is carried forward as
+  [INT-0005](INT-0005-reproducible-toolchain.md).

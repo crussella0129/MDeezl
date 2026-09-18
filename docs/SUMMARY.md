@@ -10,3 +10,4 @@
 - [INT-0004 Gitignore-aware exclusion](intents/INT-0004-gitignore-aware-exclusion.md)
 - [Sprint 1](sprints/s1/sprint-meta.md)
 - [Sprint 1](sprints/s1/sprint-meta.md)
+- [INT-0005 Reproducible toolchain between local and CI](intents/INT-0005-reproducible-toolchain.md)
