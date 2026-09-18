@@ -5,8 +5,9 @@
 //! `docs/intents/INT-0001-markdown-repo-context-bundle.md`.
 
 use std::env;
+use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process;
 
 /// Pre-populated ignore list. `.*` covers `.git`, `.venv`, and every other
@@ -140,7 +141,124 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String>
     Ok(Parsed::Run(opts))
 }
 
-fn run(_opts: &Options) -> io::Result<()> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Dir,
+    File,
+    Link,
+}
+
+/// One entry in the scanned tree. Both renderers read this same structure, so
+/// the scaffold and the content dump can never describe different file sets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Node {
+    name: String,
+    /// Path relative to the scan root, always `/`-separated.
+    rel: String,
+    kind: Kind,
+    /// Set when this directory could not be listed. The walk continues.
+    unreadable: bool,
+    children: Vec<Node>,
+}
+
+/// Does `pattern` select this entry? Four forms, no glob engine:
+/// `.*` (any dot-entry), `*.ext` (a whole file type), a pattern containing `/`
+/// (one exact relative path), anything else (that exact name, at any depth).
+fn matches(pattern: &str, name: &str, rel: &str) -> bool {
+    if pattern == ".*" {
+        name.starts_with('.')
+    } else if pattern.starts_with("*.") {
+        name.ends_with(&pattern[1..])
+    } else if pattern.contains('/') {
+        rel == pattern
+    } else {
+        name == pattern
+    }
+}
+
+/// An entry is omitted when it matches an ignore pattern and matches no
+/// include pattern. Include always wins.
+fn is_excluded(opts: &Options, name: &str, rel: &str) -> bool {
+    opts.ignore.iter().any(|p| matches(p, name, rel))
+        && !opts.include.iter().any(|p| matches(p, name, rel))
+}
+
+fn join_rel(parent: &str, name: &str) -> String {
+    if parent.is_empty() {
+        name.to_string()
+    } else {
+        format!("{parent}/{name}")
+    }
+}
+
+/// Recursively collect `dir`'s children. A directory that cannot be listed is
+/// marked and traversal continues; symlinks are recorded but never followed.
+fn walk_children(dir: &Path, rel: &str, opts: &Options) -> (Vec<Node>, bool) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(_) => return (Vec::new(), true),
+    };
+
+    let mut nodes: Vec<Node> = Vec::new();
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let rel_path = join_rel(rel, &name);
+        if is_excluded(opts, &name, &rel_path) {
+            continue;
+        }
+        // file_type() does not follow symlinks; Path::is_dir() would.
+        let kind = match entry.file_type() {
+            Ok(t) if t.is_symlink() => Kind::Link,
+            Ok(t) if t.is_dir() => Kind::Dir,
+            Ok(_) => Kind::File,
+            Err(_) => Kind::File,
+        };
+        let (children, unreadable) = if kind == Kind::Dir {
+            walk_children(&entry.path(), &rel_path, opts)
+        } else {
+            (Vec::new(), false)
+        };
+        nodes.push(Node {
+            name,
+            rel: rel_path,
+            kind,
+            unreadable,
+            children,
+        });
+    }
+
+    // read_dir yields entries in unspecified order; sort for byte-identical
+    // output across runs and platforms.
+    nodes.sort_by(|a, b| a.name.cmp(&b.name));
+    (nodes, false)
+}
+
+fn walk(opts: &Options) -> io::Result<Node> {
+    let meta = fs::metadata(&opts.root)?;
+    if !meta.is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} is not a directory", opts.root.display()),
+        ));
+    }
+    let name = opts
+        .root
+        .canonicalize()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().into_owned()))
+        .unwrap_or_else(|| opts.root.to_string_lossy().into_owned());
+    let (children, unreadable) = walk_children(&opts.root, "", opts);
+    Ok(Node {
+        name,
+        rel: String::new(),
+        kind: Kind::Dir,
+        unreadable,
+        children,
+    })
+}
+
+fn run(opts: &Options) -> io::Result<()> {
+    let _root = walk(opts)?;
     Ok(())
 }
 
@@ -270,6 +388,168 @@ mod tests {
                 panic!("[dependencies] must stay empty, found: {line}");
             }
         }
+    }
+
+    // ---- T-002: walk, pattern matching, ignore/include resolution ----
+
+    fn tmp_dir(tag: &str) -> PathBuf {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let dir = env::temp_dir().join(format!("mdeezl-{}-{tag}-{n}", process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn opts_for(root: &Path, ignore: &[&str], include: &[&str]) -> Options {
+        Options {
+            root: root.to_path_buf(),
+            ignore: ignore.iter().map(|s| s.to_string()).collect(),
+            include: include.iter().map(|s| s.to_string()).collect(),
+            ..Options::default()
+        }
+    }
+
+    fn names(node: &Node) -> Vec<&str> {
+        node.children.iter().map(|c| c.name.as_str()).collect()
+    }
+
+    #[test]
+    fn test_pattern_dot_star() {
+        assert!(matches(".*", ".git", ".git"));
+        assert!(matches(".*", ".env", "a/.env"));
+        assert!(!matches(".*", "src", "src"));
+    }
+
+    #[test]
+    fn test_pattern_extension() {
+        assert!(matches("*.png", "logo.png", "img/logo.png"));
+        assert!(!matches("*.png", "png", "png"));
+        assert!(!matches("*.png", "logo.pngx", "logo.pngx"));
+        assert!(!matches("*.png", "assets", "assets"));
+    }
+
+    #[test]
+    fn test_pattern_relative_path() {
+        assert!(matches("docs/big.csv", "big.csv", "docs/big.csv"));
+        assert!(!matches("docs/big.csv", "big.csv", "other/big.csv"));
+    }
+
+    #[test]
+    fn test_pattern_exact_name() {
+        assert!(matches("target", "target", "target"));
+        assert!(!matches("target", "targets", "targets"));
+        assert!(!matches("target", "my_target", "my_target"));
+    }
+
+    #[test]
+    fn test_pattern_name_matches_at_depth() {
+        assert!(matches("node_modules", "node_modules", "a/b/node_modules"));
+    }
+
+    #[test]
+    fn test_include_outranks_ignore() {
+        let o = opts_for(Path::new("."), &[".*"], &[".github"]);
+        assert!(!is_excluded(&o, ".github", ".github"));
+        assert!(is_excluded(&o, ".env", ".env"));
+    }
+
+    #[test]
+    fn test_include_dot_star_readmits_git() {
+        // INT-0001 records this as a consequence: include outranks ignore, so
+        // asking for dot-entries brings .git back too.
+        let o = opts_for(Path::new("."), &[".*"], &[".*"]);
+        assert!(!is_excluded(&o, ".git", ".git"));
+    }
+
+    #[test]
+    fn test_walk_sorts_children() {
+        let dir = tmp_dir("sort");
+        for name in ["zebra.txt", "alpha.txt", "middle.txt"] {
+            fs::write(dir.join(name), "x").unwrap();
+        }
+        let root = walk(&opts_for(&dir, &[], &[])).unwrap();
+        assert_eq!(names(&root), ["alpha.txt", "middle.txt", "zebra.txt"]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_walk_does_not_follow_symlink() {
+        let dir = tmp_dir("symlink");
+        fs::create_dir(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub/file.txt"), "x").unwrap();
+
+        #[cfg(unix)]
+        let made = std::os::unix::fs::symlink(&dir, dir.join("loop")).is_ok();
+        #[cfg(windows)]
+        let made = std::os::windows::fs::symlink_dir(&dir, dir.join("loop")).is_ok();
+
+        if !made {
+            eprintln!(
+                "SKIP test_walk_does_not_follow_symlink: this platform refuses to \
+                 create a directory symlink without elevated privileges. The Linux \
+                 leg of the CI matrix is the authoritative run."
+            );
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        // Terminates at all => the cycle was not followed.
+        let root = walk(&opts_for(&dir, &[], &[])).unwrap();
+        let link = root.children.iter().find(|c| c.name == "loop").unwrap();
+        assert_eq!(link.kind, Kind::Link);
+        assert!(link.children.is_empty(), "a symlink must not be descended");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_unreadable_dir_marked_and_walk_continues() {
+        let dir = tmp_dir("unreadable");
+        fs::create_dir(dir.join("locked")).unwrap();
+        fs::write(dir.join("locked/hidden.txt"), "x").unwrap();
+        fs::write(dir.join("sibling.txt"), "x").unwrap();
+
+        #[cfg(unix)]
+        let blocked = {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o000)).is_ok()
+        };
+        // Windows set_permissions only toggles the read-only attribute, which
+        // does not block read_dir, and std exposes no ACL API.
+        #[cfg(not(unix))]
+        let blocked = false;
+
+        if !blocked {
+            eprintln!(
+                "SKIP test_unreadable_dir_marked_and_walk_continues: this platform \
+                 cannot make a directory unlistable through std alone. The Linux leg \
+                 of the CI matrix is the authoritative run."
+            );
+            let _ = fs::remove_dir_all(&dir);
+            return;
+        }
+
+        let root = walk(&opts_for(&dir, &[], &[])).unwrap();
+        let locked = root.children.iter().find(|c| c.name == "locked").unwrap();
+        assert!(locked.unreadable, "unlistable directory must be marked");
+        assert!(
+            root.children.iter().any(|c| c.name == "sibling.txt"),
+            "the walk must continue past an unlistable directory"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o755));
+        }
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_walk_rejects_missing_root() {
+        let missing = env::temp_dir().join("mdeezl-does-not-exist-xyzzy");
+        assert!(walk(&opts_for(&missing, &[], &[])).is_err());
     }
 
     #[test]
