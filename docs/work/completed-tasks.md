@@ -160,4 +160,4 @@
 - **Self-check:** on this repository an untracked `.tmp` probe was omitted by
   the repo's own `*.tmp` rule while a `.txt` probe was kept, and
   `--no-gitignore` restored both. The run took 0.2 s with an empty stderr.
-- **Commit:** PENDING
+- **Commit:** `d38c65c4700f2a45280f85d1998c5fa0c519aed5`
