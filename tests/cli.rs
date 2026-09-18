@@ -309,6 +309,22 @@ fn test_cli_unwritable_output_exits_1() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
+/// T-006. The one check whose absence would let the sprint checkpoint be green
+/// because nothing ran.
+#[test]
+fn test_ci_workflow_runs_tests_on_both_platforms() {
+    let workflow = include_str!("../.github/workflows/sprint-loops-ci.yml");
+    assert!(workflow.contains("cargo test"), "CI must run the tests");
+    assert!(
+        workflow.contains("ubuntu-latest"),
+        "the symlink guarantee needs a Linux runner"
+    );
+    assert!(
+        workflow.contains("windows-latest"),
+        "the path-separator guarantee needs a Windows runner"
+    );
+}
+
 #[test]
 fn test_cli_help_documents_patterns_and_caveats() {
     let out = Command::new(EXE).arg("--help").output().unwrap();

@@ -65,3 +65,17 @@
   140 KB bundle whose fences balance, with a 5-backtick opening fence where a
   sprint plan contains a 4-backtick run — the case a fixed fence would corrupt.
 - **Commit:** `b87a0eaa7a83419563997a5d2850d8c81fc9a06e`
+
+## T-006 (sprint 0)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-17
+- **Touched:** `.github/workflows/sprint-loops-ci.yml`, `tests/cli.rs`
+- **Summary:** Re-ran the bundle's `scaffold-ci.sh` now that `Cargo.toml`
+  exists — substrate convergence had generated nothing, because it ran before
+  any Rust did. The generated workflow was Linux-only, so it now runs a
+  `ubuntu-latest` + `windows-latest` matrix with `fail-fast: false`, and
+  `cargo test -- --nocapture` so a platform-gated SKIP is visible in the log
+  rather than passing silently. `test_ci_workflow_runs_tests_on_both_platforms`
+  asserts all three properties.
+- **Commit:** PENDING
