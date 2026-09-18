@@ -1,7 +1,7 @@
 # Sprint 1 End-to-End Test Results
 
 - **Status:** possible. All end-to-end coverage the test plan promised is implemented.
-- **Tested head:** `1a4fb986939feba1ffd8dadcffaa5b97d174c5d1` (branch `dev`)
+- **Tested head:** `0ff9f2a9785b0acdd5f152c6e5d019e5506e5276` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Local result:** 51 passed, 0 failed, 0 ignored, on Windows 11. That is the 28 sprint 0 end-to-end tests, run **unedited**, plus 23 new. Two new tests printed a SKIP here; see Linux-only.
 - **CI result:** passed on `ubuntu-latest` and `windows-latest` with git 2.55.0; see "CI confirmation".
@@ -73,7 +73,7 @@ Four cases printed a SKIP on this Windows host. They are proved only by the `ubu
 
 ## CI confirmation
 
-Run <https://github.com/crussella0129/MDeezl/actions/runs/35326727838>, on the tested head, **passed on both legs**. Both runners used **git 2.55.0**; every behaviour this sprint relies on was measured in planning on 2.54.
+Run <https://github.com/crussella0129/MDeezl/actions/runs/35327617895>, on the tested head, **passed on both legs**. Both runners used **git 2.55.0**; every behaviour this sprint relies on was measured in planning on 2.54.
 
 | Leg | Result | Linux-only cases |
 |-----|--------|------------------|
@@ -90,4 +90,5 @@ Each result below was checked per test in the log, not inferred from the green b
 
 - `d286b96` failed at clippy on toolchain drift (runner Rust 1.98.0, local 1.96.0).
 - `b1755d6` passed with the pre-critique tests.
-- This head is the first with the tightened tests.
+- `1a4fb98` passed with round one's tightened tests (run 35326727838).
+- This head adds round two's three fixes, and is the tested head.

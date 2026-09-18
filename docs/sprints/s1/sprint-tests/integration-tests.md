@@ -1,6 +1,6 @@
 # Sprint 1 Integration Test Results
 
-- **Tested head:** `1a4fb986939feba1ffd8dadcffaa5b97d174c5d1` (branch `dev`)
+- **Tested head:** `0ff9f2a9785b0acdd5f152c6e5d019e5506e5276` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Result:** passed. Both compositions below run on every push, on both CI runners.
 

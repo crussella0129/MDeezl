@@ -1,6 +1,6 @@
 # Sprint 1 Unit Test Results
 
-- **Tested head:** `1a4fb986939feba1ffd8dadcffaa5b97d174c5d1` (branch `dev`)
+- **Tested head:** `0ff9f2a9785b0acdd5f152c6e5d019e5506e5276` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Host:** Windows 11, `cargo 1.96.0` / `rustc 1.96.0`, `git 2.54.0.windows.1`. CI runs Rust 1.98.0 and git 2.55.0; see the test report.
 - **Result:** 68 passed, 0 failed, 0 ignored. That is the 44 sprint 0 unit tests, which ran **unedited**, plus 24 new ones. Two tests skipped one case each, printing a reason; see Platform-gated.
