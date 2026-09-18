@@ -307,9 +307,118 @@ fn render_tree(root: &Node, wrap: Wrap) -> String {
     }
 }
 
+/// CommonMark requires a closing fence at least as long as the opening one, so
+/// an opening fence longer than any backtick run inside the body cannot be
+/// closed from within it.
+fn fence_len(body: &str) -> usize {
+    let mut longest = 0;
+    let mut run = 0;
+    for ch in body.chars() {
+        if ch == '`' {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    (longest + 1).max(3)
+}
+
+/// A deliberately small table. An unknown extension is not an error.
+fn language_hint(name: &str) -> &'static str {
+    match name.rsplit_once('.').map(|(_, ext)| ext) {
+        Some("rs") => "rust",
+        Some("md") => "markdown",
+        Some("toml") => "toml",
+        Some("json") => "json",
+        Some("yml" | "yaml") => "yaml",
+        Some("py") => "python",
+        Some("go") => "go",
+        Some("js") => "javascript",
+        Some("ts") => "typescript",
+        Some("sh" | "bash") => "bash",
+        Some("ps1") => "powershell",
+        Some("html") => "html",
+        Some("css") => "css",
+        _ => "",
+    }
+}
+
+/// Collect every file node in tree order.
+fn collect_files<'a>(node: &'a Node, out: &mut Vec<&'a Node>) {
+    for child in &node.children {
+        match child.kind {
+            Kind::File | Kind::Link => out.push(child),
+            Kind::Dir => collect_files(child, out),
+        }
+    }
+}
+
+/// Render one file section: the `---` / `File: <path>` / `---` header the awk
+/// one-liner emits, then the body. `body` is `Err` when the file could not be
+/// read, which is rendered in place rather than aborting the document.
+fn render_section(node: &Node, body: &Result<Vec<u8>, io::Error>, wrap: Wrap) -> String {
+    let mut out = format!("\n---\nFile: {}\n---\n\n", node.rel);
+
+    let text = match body {
+        Err(err) => {
+            out.push_str(&format!("[unreadable: {err}]\n"));
+            return out;
+        }
+        Ok(bytes) => match std::str::from_utf8(bytes) {
+            Ok(text) => text,
+            Err(_) => {
+                out.push_str(&format!("[binary file, {} bytes elided]\n", bytes.len()));
+                return out;
+            }
+        },
+    };
+
+    match wrap {
+        // A multi-line body cannot be inline, so inline falls back to fencing.
+        Wrap::Fence | Wrap::Inline => {
+            let fence = "`".repeat(fence_len(text));
+            out.push_str(&format!("{fence}{}\n", language_hint(&node.name)));
+            out.push_str(text);
+            if !text.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("{fence}\n"));
+        }
+        Wrap::None => {
+            out.push_str(text);
+            if !text.ends_with('\n') {
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+fn render_contents(root: &Node, opts: &Options) -> String {
+    let mut files = Vec::new();
+    collect_files(root, &mut files);
+
+    let mut out = String::new();
+    for node in files {
+        let body = fs::read(opts.root.join(&node.rel));
+        out.push_str(&render_section(node, &body, opts.wrap));
+    }
+    out
+}
+
+fn render_document(root: &Node, opts: &Options) -> String {
+    format!(
+        "# {}\n\n## Structure\n\n{}\n## Contents\n{}",
+        root.name,
+        render_tree(root, opts.wrap),
+        render_contents(root, opts)
+    )
+}
+
 fn run(opts: &Options) -> io::Result<()> {
     let root = walk(opts)?;
-    let _tree = render_tree(&root, opts.wrap);
+    let _document = render_document(&root, opts);
     Ok(())
 }
 
@@ -693,6 +802,152 @@ mod tests {
         let root = dir_node("root", vec![file_node("a.txt")]);
         let out = render_tree(&root, Wrap::None);
         assert!(!out.contains('`'), "none mode emits no backticks at all");
+    }
+
+    // ---- T-004: content section renderer ----
+
+    fn ok_body(s: &str) -> Result<Vec<u8>, io::Error> {
+        Ok(s.as_bytes().to_vec())
+    }
+
+    fn node_at(rel: &str) -> Node {
+        Node {
+            name: rel.rsplit('/').next().unwrap().to_string(),
+            rel: rel.to_string(),
+            kind: Kind::File,
+            unreadable: false,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_file_header_format() {
+        let out = render_section(&node_at("src/main.rs"), &ok_body("x\n"), Wrap::None);
+        let lines: Vec<&str> = out.lines().collect();
+        // Leading blank line, then the inherited three-line header.
+        assert_eq!(lines[0], "");
+        assert_eq!(lines[1], "---");
+        assert_eq!(lines[2], "File: src/main.rs");
+        assert_eq!(lines[3], "---");
+    }
+
+    #[test]
+    fn test_section_separator_blank_line() {
+        let a = render_section(&node_at("a.txt"), &ok_body("last line\n"), Wrap::None);
+        let b = render_section(&node_at("b.txt"), &ok_body("x\n"), Wrap::None);
+        let joined = format!("{a}{b}");
+        // Without the blank line, `---` would underline "last line" as a
+        // setext heading and b.txt's header would vanish.
+        assert!(joined.contains("last line\n\n---\nFile: b.txt"));
+    }
+
+    #[test]
+    fn test_fence_len_plain_body() {
+        assert_eq!(fence_len("no backticks here"), 3);
+    }
+
+    #[test]
+    fn test_fence_len_body_with_triple_backticks() {
+        assert_eq!(fence_len("text\n```\ncode\n```\n"), 4);
+    }
+
+    #[test]
+    fn test_fence_len_body_with_quad_backticks() {
+        assert_eq!(fence_len("````\nx\n````"), 5);
+    }
+
+    #[test]
+    fn test_fence_len_counts_longest_run_not_total() {
+        assert_eq!(fence_len("`a` `b` `c` `d` `e`"), 3);
+    }
+
+    #[test]
+    fn test_binary_body_elided() {
+        let bytes = vec![0xffu8, 0xfe, 0x00, 0x01];
+        let out = render_section(&node_at("blob.bin"), &Ok(bytes), Wrap::Fence);
+        assert!(out.contains("[binary file, 4 bytes elided]"));
+        assert!(!out.contains('\u{fffd}'), "raw bytes must not be emitted");
+    }
+
+    #[test]
+    fn test_unreadable_file_body_marked() {
+        let err = io::Error::new(io::ErrorKind::PermissionDenied, "access denied");
+        let out = render_section(&node_at("secret.txt"), &Err(err), Wrap::Fence);
+        assert!(out.contains("[unreadable: "));
+        assert!(out.contains("access denied"));
+    }
+
+    #[test]
+    fn test_language_hint_known_and_unknown() {
+        assert_eq!(language_hint("main.rs"), "rust");
+        assert_eq!(language_hint("README.md"), "markdown");
+        assert_eq!(language_hint("thing.xyz"), "");
+        assert_eq!(language_hint("LICENSE"), "");
+    }
+
+    #[test]
+    fn test_body_fence_survives_inner_fence() {
+        let out = render_section(
+            &node_at("doc.md"),
+            &ok_body("```\ninner\n```\n"),
+            Wrap::Fence,
+        );
+        assert!(
+            out.contains("````markdown\n"),
+            "opening fence must outgrow the body"
+        );
+    }
+
+    #[test]
+    fn test_relative_path_uses_forward_slashes() {
+        let out = render_section(&node_at("a/b/c.txt"), &ok_body("x\n"), Wrap::None);
+        assert!(out.contains("File: a/b/c.txt"));
+        assert!(!out.contains('\\'));
+    }
+
+    #[test]
+    fn test_document_assembles_in_order() {
+        let root = dir_node("root", vec![]);
+        let doc = render_document(&root, &Options::default());
+        let title = doc.find("# root").unwrap();
+        let structure = doc.find("## Structure").unwrap();
+        let contents = doc.find("## Contents").unwrap();
+        assert!(title < structure && structure < contents);
+    }
+
+    // ---- T-004: traversal + rendering integration ----
+
+    #[test]
+    fn test_excluded_entry_absent_from_both_halves() {
+        let dir = tmp_dir("excluded");
+        fs::create_dir(dir.join("target")).unwrap();
+        fs::write(dir.join("target/artifact.txt"), "built").unwrap();
+        fs::write(dir.join("keep.txt"), "kept").unwrap();
+
+        let opts = opts_for(&dir, &["target"], &[]);
+        let root = walk(&opts).unwrap();
+        let doc = render_document(&root, &opts);
+
+        assert!(!doc.contains("target"), "absent from scaffold and contents");
+        assert!(!doc.contains("built"));
+        assert!(doc.contains("keep.txt") && doc.contains("kept"));
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_included_entry_present_in_both_halves() {
+        let dir = tmp_dir("included");
+        fs::create_dir(dir.join(".github")).unwrap();
+        fs::write(dir.join(".github/ci.yml"), "on: push").unwrap();
+
+        let opts = opts_for(&dir, &[".*"], &[".github"]);
+        let root = walk(&opts).unwrap();
+        let doc = render_document(&root, &opts);
+
+        assert!(doc.contains("├── .github/") || doc.contains("└── .github/"));
+        assert!(doc.contains("File: .github/ci.yml"));
+        assert!(doc.contains("on: push"));
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

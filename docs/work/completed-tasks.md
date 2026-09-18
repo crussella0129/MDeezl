@@ -37,3 +37,17 @@
   modes. 7 new unit tests, including the `none` case that asserts no backticks
   leak onto any line.
 - **Commit:** `471366a4c21e821d02d54bda37871c1f2be1e370`
+
+## T-004 (sprint 0)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-17
+- **Touched:** `src/main.rs`
+- **Summary:** Content renderer emitting the inherited `---` / `File: <path>` /
+  `---` header preceded by the blank line the awk one-liner produces, adaptive
+  fence length (`max(3, longest_backtick_run + 1)`), a small extension-to-
+  language table, and in-place markers for non-UTF-8 and unreadable files.
+  Also the composed both-halves property this task owns. 14 new tests,
+  including the two integration tests proving an omitted entry is absent from
+  the scaffold *and* the contents, and a re-admitted one present in both.
+- **Commit:** PENDING
