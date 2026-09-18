@@ -5,9 +5,9 @@
 - **State:** active
 - **Work evidence:** [Sprint 0 build plan](../sprints/s0/sprint-plans/build-plan.md), [T-002 ignore and include resolution](../sprints/s0/sprint-plans/build-plan.md#t-002-filesystem-walk-with-ignore-and-include-resolution)
 - **Completion evidence:** none
-- **Code evidence:** none
-- **Test evidence:** none
-- **Documentation evidence:** none
+- **Code evidence:** [src/main.rs](../../src/main.rs), [Cargo.toml](../../Cargo.toml)
+- **Test evidence:** [Sprint 0 test report](../sprints/s0/sprint-tests/test-report.md), [unit](../sprints/s0/sprint-tests/unit-tests.md), [integration](../sprints/s0/sprint-tests/integration-tests.md), [end-to-end](../sprints/s0/sprint-tests/e2e-tests.md)
+- **Documentation evidence:** [README.md](../../README.md)
 
 ## Intent
 
@@ -234,3 +234,9 @@ minus `--include`, with no second hidden mechanism layered on top.
   correction as the previous entry, applied to the remaining mode.
 - 2026-09-17: `planned → active`; sprint 0 Build Phase began implementing
   T-001 through T-007 against this chapter. Work evidence unchanged.
+- 2026-09-17: Test Phase evidence attached while `active`. 72 tests pass at
+  `2e48a1c` with `cargo fmt`, `cargo clippy -D warnings`, and a zero-dependency
+  `cargo tree` clean. The chapter stays `active` rather than moving to
+  `realized`: the "verification runs on both Linux and Windows" criterion is
+  unverified because CI has never run on this branch, and the test report
+  records that as a known gap.
