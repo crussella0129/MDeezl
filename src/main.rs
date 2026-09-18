@@ -1403,12 +1403,11 @@ mod tests {
 
         // No backslash outside the four-byte class: that is what keeps the
         // payload safe on Git for Windows, which turns a bare `\` into `/`.
-        let class = [b'[', b'\\', b'\\', b']'];
         let stripped: Vec<u8> = got
             .split(|&b| b == 0)
             .flat_map(|f| {
                 let mut v = f.to_vec();
-                while let Some(i) = v.windows(4).position(|w| w == class) {
+                while let Some(i) = v.windows(4).position(|w| w == backslash_class) {
                     v.drain(i..i + 4);
                 }
                 v
