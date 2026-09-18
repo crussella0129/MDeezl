@@ -23,4 +23,4 @@
   continues. 11 new unit tests. On this Windows host the symlink test ran and
   passed; the unlistable-directory test skipped with its reason, as planned,
   and the Linux CI leg is its authoritative run.
-- **Commit:** PENDING
+- **Commit:** `3697fc1dd56670cf7fa10ccba6c562206107568c`
