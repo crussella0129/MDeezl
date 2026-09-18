@@ -51,3 +51,17 @@
   including the two integration tests proving an omitted entry is absent from
   the scaffold *and* the contents, and a re-admitted one present in both.
 - **Commit:** `1bf6c31ed8f1b22c765f61022f23e8700375d38c`
+
+## T-005 (sprint 0)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-17
+- **Touched:** `src/main.rs`, `tests/cli.rs`, `Cargo.lock`
+- **Summary:** Document assembled in memory, then written through one
+  `BufWriter` over stdout or the `-o` file, so a failure cannot leave a partial
+  document on stdout. Exit 0/2/1 for success, usage error, and I/O failure.
+  Created `tests/cli.rs`, the integration target carrying all 23 end-to-end
+  tests. Self-check: running `mdeezl .` against this repository produces a
+  140 KB bundle whose fences balance, with a 5-backtick opening fence where a
+  sprint plan contains a 4-backtick run — the case a fixed fence would corrupt.
+- **Commit:** PENDING

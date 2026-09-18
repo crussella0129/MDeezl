@@ -6,7 +6,7 @@
 
 use std::env;
 use std::fs;
-use std::io;
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process;
 
@@ -416,10 +416,19 @@ fn render_document(root: &Node, opts: &Options) -> String {
     )
 }
 
+/// Render the whole document before opening the sink, so a failure can never
+/// leave a partial document on stdout. INT-0001 records the peak-memory cost
+/// this accepts.
 fn run(opts: &Options) -> io::Result<()> {
     let root = walk(opts)?;
-    let _document = render_document(&root, opts);
-    Ok(())
+    let document = render_document(&root, opts);
+
+    let mut sink: Box<dyn Write> = match &opts.sink {
+        Sink::Stdout => Box::new(BufWriter::new(io::stdout().lock())),
+        Sink::File(path) => Box::new(BufWriter::new(fs::File::create(path)?)),
+    };
+    sink.write_all(document.as_bytes())?;
+    sink.flush()
 }
 
 fn main() {
