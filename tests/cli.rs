@@ -559,3 +559,201 @@ fn test_cli_help_names_both_exclusion_sources() {
         assert!(help.contains(needle), "help must mention {needle}");
     }
 }
+
+// ---- Sprint 1 test harness: real git repositories, isolated from the host ----
+
+/// Every variable `git rev-parse --local-env-vars` lists (git 2.54).
+const GIT_LOCAL_ENV_VARS: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+/// Isolate a command from the host's git configuration and any ambient
+/// repository. `XDG_CONFIG_HOME` matters as much as `GIT_CONFIG_GLOBAL`: git's
+/// default excludes file lives at `$XDG_CONFIG_HOME/git/ignore`, which
+/// `GIT_CONFIG_GLOBAL` alone does not disable.
+fn isolate(cmd: &mut Command) -> &mut Command {
+    let iso = std::env::temp_dir().join(format!("mdeezl-e2e-gitiso-{}", std::process::id()));
+    fs::create_dir_all(&iso).unwrap();
+    let _ = fs::write(iso.join("gitconfig"), "");
+    cmd.env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
+        .env("XDG_CONFIG_HOME", &iso)
+        .env("GIT_CEILING_DIRECTORIES", std::env::temp_dir());
+    for var in GIT_LOCAL_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
+fn git_available() -> bool {
+    Command::new("git")
+        .arg("--version")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}
+
+macro_rules! require_git {
+    ($name:literal) => {
+        if !git_available() {
+            eprintln!(concat!("SKIP ", $name, ": git not on PATH"));
+            return;
+        }
+    };
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = isolate(Command::new("git").current_dir(dir).args(args))
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+fn git_repo(tag: &str) -> Tmp {
+    let dir = tmp_dir(tag);
+    git(&dir, &["init", "-q", "."]);
+    dir
+}
+
+fn put(dir: &Path, rel: &str, body: &str) {
+    let p = dir.join(rel);
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).unwrap();
+    }
+    fs::write(p, body).unwrap();
+}
+
+/// Run the binary against `root`, isolated.
+fn run_iso(root: &Path, args: &[&str]) -> Output {
+    isolate(Command::new(EXE).arg(root).args(args))
+        .output()
+        .expect("failed to run mdeezl")
+}
+
+fn stderr_of(out: &Output) -> String {
+    String::from_utf8_lossy(&out.stderr).into_owned()
+}
+
+/// The sprint 0 fixture's scaffold, which every degraded run must still produce.
+const FIXTURE_TREE: [&str; 9] = [
+    "├── a.txt",
+    "├── blob.bin",
+    "├── debug.log",
+    "├── notes.md",
+    "├── one.txt",
+    "├── src/",
+    "│   └── main.rs",
+    "└── sub/",
+    "    └── one.txt",
+];
+
+const SKIP_NOTICE: &str = "mdeezl: gitignore filtering skipped:";
+
+// ---- T-002: verifiable before pruning exists ----
+
+#[test]
+fn test_cli_no_gitignore_does_not_invoke_git() {
+    let dir = fixture("nogi-plain");
+    let default_run = run_iso(&dir, &[]);
+    let off = run_iso(&dir, &["--no-gitignore"]);
+    assert!(default_run.status.success() && off.status.success());
+    // In a plain directory the default run degrades and says so...
+    assert!(stderr_of(&default_run).contains(SKIP_NOTICE));
+    // ...so an empty stderr here proves git was never consulted,
+    assert!(off.stderr.is_empty(), "stderr: {}", stderr_of(&off));
+    // and the document equals what the ignore list alone produces.
+    assert_eq!(default_run.stdout, off.stdout);
+}
+
+#[test]
+fn test_cli_plain_directory_degrades_with_reason() {
+    require_git!("test_cli_plain_directory_degrades_with_reason");
+    let dir = fixture("plain-degrade");
+    let out = run_iso(&dir, &[]);
+    assert!(out.status.success());
+    let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "exactly one stderr line: {err}");
+    assert!(err.starts_with(SKIP_NOTICE), "{err}");
+    assert!(err.contains("not a git repository"), "{err}");
+    assert_eq!(tree_lines(&stdout_of(&out)), FIXTURE_TREE);
+}
+
+#[test]
+fn test_cli_missing_git_degrades_with_reason() {
+    let dir = fixture("nogit");
+    // `.env("PATH", "")`, not `env_remove`: glibc answers a missing PATH by
+    // searching /bin:/usr/bin and would find git. Not `env_clear`: that drops
+    // SystemRoot on Windows. On Windows std searches the application
+    // directory, System32 and the Windows directory before PATH; none hold git
+    // on a standard runner.
+    let out = isolate(
+        Command::new(EXE)
+            .arg(&*dir)
+            .current_dir(&*dir)
+            .env("PATH", ""),
+    )
+    .output()
+    .expect("failed to run mdeezl");
+    assert!(out.status.success());
+    let err = stderr_of(&out);
+    assert!(err.starts_with(SKIP_NOTICE), "{err}");
+    assert!(err.contains("git was not found"), "{err}");
+    assert_eq!(tree_lines(&stdout_of(&out)), FIXTURE_TREE);
+}
+
+#[test]
+fn test_cli_ignored_scan_root_degrades_with_reason() {
+    require_git!("test_cli_ignored_scan_root_degrades_with_reason");
+    let dir = git_repo("ignored-root");
+    put(&dir, ".gitignore", "out/\n");
+    put(&dir, "out/a.o", "object\n");
+    put(&dir, "out/b.txt", "text\n");
+    let out = run_iso(&dir.join("out"), &[]);
+    assert!(out.status.success());
+    let err = stderr_of(&out);
+    assert!(err.starts_with(SKIP_NOTICE), "{err}");
+    assert!(err.contains("itself ignored"), "{err}");
+    // Every file present, not a title over an empty tree.
+    let doc = stdout_of(&out);
+    assert!(doc.contains("File: a.o") && doc.contains("File: b.txt"));
+}
+
+#[test]
+fn test_cli_ignores_ambient_git_environment() {
+    require_git!("test_cli_ignores_ambient_git_environment");
+    let dir = git_repo("ambient-env");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "app.log", "log\n");
+    put(&dir, "keep.txt", "keep\n");
+    let bogus = std::env::temp_dir().join("mdeezl-no-such-git-dir");
+    assert!(!bogus.exists(), "precondition: {bogus:?} must not exist");
+    // Deliberately NOT through `isolate`'s removal: these variables are the
+    // point. If the binary did not remove them, GIT_DIR would override -C
+    // discovery, git would fail, and the skip notice would appear.
+    let mut cmd = Command::new(EXE);
+    isolate(cmd.arg(&*dir));
+    let out = cmd
+        .env("GIT_DIR", &bogus)
+        .env("GIT_WORK_TREE", &bogus)
+        .output()
+        .expect("failed to run mdeezl");
+    assert!(out.status.success());
+    assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
+}

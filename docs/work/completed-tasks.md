@@ -118,3 +118,25 @@
   naming both exclusion sources, the off switch, and the requirement for git on
   `PATH` and a git work tree. 3 new tests; all 72 sprint 0 tests pass unedited.
 - **Commit:** `1f45a15ecbbe8ff3c3bb2ea61edc512cfc90f429`
+
+## T-002 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** One `git -C <root> check-ignore -z -v -n --stdin` per run, with
+  all fifteen repository-local git variables removed. Paths are `./`-prefixed
+  with bracket-class escaping, results are mapped by position, and stdin is
+  written from its own thread so a large list cannot deadlock. The candidate
+  list sends the root as `.` and skips the contents of nested repositories and
+  submodules. `run` reports a skip notice when the query fails or git reports
+  the scan root ignored; pruning arrives in T-003. 20 new tests, all passing.
+  They include a real submodule, the full-syntax fixture, and a 20,000-path
+  deadlock test that completes in about a second. The Unix-only backslash case
+  skipped on this host with its reason. `cargo tree` still reports only this
+  crate.
+- **Finding:** the e2e harness also sets `XDG_CONFIG_HOME`. That goes beyond
+  the locked plan's isolation list. Git's default excludes file is
+  `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` alone does not disable
+  it; this host has one.
+- **Commit:** PENDING
