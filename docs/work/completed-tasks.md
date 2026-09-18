@@ -139,4 +139,4 @@
   the locked plan's isolation list. Git's default excludes file is
   `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` alone does not disable
   it; this host has one.
-- **Commit:** PENDING
+- **Commit:** `bb5fa86a83cda194dd8040696249b8f04ec7341b`
