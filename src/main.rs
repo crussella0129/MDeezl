@@ -956,6 +956,32 @@ mod tests {
         assert!(out.contains("access denied"));
     }
 
+    /// The second half of the same clause: rendering continues past a file it
+    /// cannot read. Deterministic and host-independent — the file is removed
+    /// after the walk records it, so the read fails without needing
+    /// permissions, which is what lets this run on Windows too.
+    #[test]
+    fn test_unreadable_file_does_not_abort_document() {
+        let dir = tmp_dir("gonefile");
+        fs::write(dir.join("a-gone.txt"), "will vanish\n").unwrap();
+        fs::write(dir.join("b-stays.txt"), "still here\n").unwrap();
+
+        let opts = opts_for(&dir, &[], &[]);
+        let root = walk(&opts).unwrap();
+        fs::remove_file(dir.join("a-gone.txt")).unwrap();
+        let doc = render_document(&root, &opts);
+
+        assert!(doc.contains("File: a-gone.txt"));
+        assert!(
+            doc.contains("[unreadable: "),
+            "the failure is marked in place"
+        );
+        assert!(
+            doc.contains("File: b-stays.txt") && doc.contains("still here"),
+            "rendering must continue with the next file"
+        );
+    }
+
     #[test]
     fn test_language_hint_known_and_unknown() {
         assert_eq!(language_hint("main.rs"), "rust");
