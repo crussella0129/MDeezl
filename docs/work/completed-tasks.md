@@ -36,4 +36,4 @@
   trailing `/` on directories, an `[unreadable]` marker, and all three wrap
   modes. 7 new unit tests, including the `none` case that asserts no backticks
   leak onto any line.
-- **Commit:** PENDING
+- **Commit:** `471366a4c21e821d02d54bda37871c1f2be1e370`
