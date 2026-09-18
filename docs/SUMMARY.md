@@ -7,3 +7,4 @@
 - [INT-0001 Markdown repository context bundle](intents/INT-0001-markdown-repo-context-bundle.md)
 - [INT-0002 Git and remote sources](intents/INT-0002-git-and-remote-sources.md)
 - [INT-0003 LLM-generated scaffold comments](intents/INT-0003-llm-scaffold-comments.md)
+- [INT-0004 Gitignore-aware exclusion](intents/INT-0004-gitignore-aware-exclusion.md)

@@ -240,3 +240,10 @@ minus `--include`, with no second hidden mechanism layered on top.
   `realized`: the "verification runs on both Linux and Windows" criterion is
   unverified because CI has never run on this branch, and the test report
   records that as a known gap.
+- 2026-09-17: sprint 0 closed with the chapter still `active`, not `realized`.
+  Every acceptance criterion but one is proved by the sprint 0 test report; the
+  exception, "verification runs on both Linux and Windows", cannot be verified
+  before the checkpoint exists, because the checkpoint is what first pushes the
+  branch and triggers CI. Carried forward as T-101. The gitignore gap recorded
+  in Alternatives and Consequences was promoted to
+  [INT-0004](INT-0004-gitignore-aware-exclusion.md).
