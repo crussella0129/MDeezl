@@ -24,3 +24,16 @@
   passed; the unlistable-directory test skipped with its reason, as planned,
   and the Linux CI leg is its authoritative run.
 - **Commit:** `3697fc1dd56670cf7fa10ccba6c562206107568c`
+
+## T-003 (sprint 0)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-17
+- **Touched:** `src/main.rs`
+- **Summary:** Scaffold renderer over the shared `Node` tree using the exact
+  box-drawing symbols from `Scaffolding symbols generator.md`, with prefix
+  composition (`│   ` past a non-last entry, four spaces past a last one),
+  trailing `/` on directories, an `[unreadable]` marker, and all three wrap
+  modes. 7 new unit tests, including the `none` case that asserts no backticks
+  leak onto any line.
+- **Commit:** PENDING

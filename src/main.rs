@@ -257,8 +257,59 @@ fn walk(opts: &Options) -> io::Result<Node> {
     })
 }
 
+/// Box-drawing symbols, per `Scaffolding symbols generator.md`: U+251C/U+2500,
+/// U+2514/U+2500, U+2502, each followed by a single space before the name.
+const BRANCH: &str = "├── ";
+const LAST_BRANCH: &str = "└── ";
+const CONTINUE: &str = "│   ";
+const BLANK: &str = "    ";
+
+fn display_name(node: &Node) -> String {
+    let mut s = node.name.clone();
+    if node.kind == Kind::Dir {
+        s.push('/');
+    }
+    if node.unreadable {
+        s.push_str("  [unreadable]");
+    }
+    s
+}
+
+fn push_tree_lines(node: &Node, prefix: &str, out: &mut Vec<String>) {
+    let last = node.children.len().saturating_sub(1);
+    for (i, child) in node.children.iter().enumerate() {
+        let is_last = i == last;
+        out.push(format!(
+            "{prefix}{}{}",
+            if is_last { LAST_BRANCH } else { BRANCH },
+            display_name(child)
+        ));
+        if !child.children.is_empty() {
+            let child_prefix = format!("{prefix}{}", if is_last { BLANK } else { CONTINUE });
+            push_tree_lines(child, &child_prefix, out);
+        }
+    }
+}
+
+/// Render the scaffold. `fence` puts the whole tree in one fenced block,
+/// `inline` wraps each line in single backticks, `none` emits it bare.
+fn render_tree(root: &Node, wrap: Wrap) -> String {
+    let mut lines = vec![display_name(root)];
+    push_tree_lines(root, "", &mut lines);
+
+    match wrap {
+        Wrap::Fence => format!("```\n{}\n```\n", lines.join("\n")),
+        Wrap::Inline => {
+            let wrapped: Vec<String> = lines.iter().map(|l| format!("`{l}`")).collect();
+            format!("{}\n", wrapped.join("\n"))
+        }
+        Wrap::None => format!("{}\n", lines.join("\n")),
+    }
+}
+
 fn run(opts: &Options) -> io::Result<()> {
-    let _root = walk(opts)?;
+    let root = walk(opts)?;
+    let _tree = render_tree(&root, opts.wrap);
     Ok(())
 }
 
@@ -550,6 +601,98 @@ mod tests {
     fn test_walk_rejects_missing_root() {
         let missing = env::temp_dir().join("mdeezl-does-not-exist-xyzzy");
         assert!(walk(&opts_for(&missing, &[], &[])).is_err());
+    }
+
+    // ---- T-003: scaffold tree renderer ----
+
+    fn dir_node(name: &str, children: Vec<Node>) -> Node {
+        Node {
+            name: name.to_string(),
+            rel: name.to_string(),
+            kind: Kind::Dir,
+            unreadable: false,
+            children,
+        }
+    }
+
+    fn file_node(name: &str) -> Node {
+        Node {
+            name: name.to_string(),
+            rel: name.to_string(),
+            kind: Kind::File,
+            unreadable: false,
+            children: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_tree_branch_symbols() {
+        let root = dir_node("root", vec![file_node("a.txt"), file_node("b.txt")]);
+        let out = render_tree(&root, Wrap::None);
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines[1], "├── a.txt");
+        assert_eq!(lines[2], "└── b.txt");
+    }
+
+    #[test]
+    fn test_tree_prefix_composition() {
+        let root = dir_node(
+            "root",
+            vec![
+                dir_node("first", vec![file_node("deep.txt")]),
+                dir_node("last", vec![file_node("deep.txt")]),
+            ],
+        );
+        let out = render_tree(&root, Wrap::None);
+        let lines: Vec<&str> = out.lines().collect();
+        // Descending past a non-last entry continues the vertical line...
+        assert_eq!(lines[2], "│   └── deep.txt");
+        // ...and past a last entry it becomes four spaces.
+        assert_eq!(lines[4], "    └── deep.txt");
+    }
+
+    #[test]
+    fn test_tree_directory_suffix() {
+        let root = dir_node("root", vec![dir_node("sub", vec![]), file_node("f.txt")]);
+        let out = render_tree(&root, Wrap::None);
+        assert!(out.contains("├── sub/"));
+        assert!(out.contains("└── f.txt"));
+        assert!(!out.contains("f.txt/"));
+    }
+
+    #[test]
+    fn test_tree_unreadable_marker() {
+        let mut locked = dir_node("locked", vec![]);
+        locked.unreadable = true;
+        let root = dir_node("root", vec![locked]);
+        assert!(render_tree(&root, Wrap::None).contains("└── locked/  [unreadable]"));
+    }
+
+    #[test]
+    fn test_tree_fence_wrap() {
+        let root = dir_node("root", vec![file_node("a.txt")]);
+        let out = render_tree(&root, Wrap::Fence);
+        assert_eq!(out.matches("```").count(), 2, "exactly one fenced block");
+        assert!(out.starts_with("```\n"));
+        assert!(out.ends_with("```\n"));
+    }
+
+    #[test]
+    fn test_tree_inline_wrap() {
+        let root = dir_node("root", vec![file_node("a.txt")]);
+        let out = render_tree(&root, Wrap::Inline);
+        for line in out.lines() {
+            assert!(line.starts_with('`') && line.ends_with('`'), "line: {line}");
+        }
+        // Symbols survive the wrapping untouched.
+        assert!(out.contains("`└── a.txt`"));
+    }
+
+    #[test]
+    fn test_tree_none_wrap() {
+        let root = dir_node("root", vec![file_node("a.txt")]);
+        let out = render_tree(&root, Wrap::None);
+        assert!(!out.contains('`'), "none mode emits no backticks at all");
     }
 
     #[test]
