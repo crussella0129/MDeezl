@@ -92,4 +92,4 @@
   asserts all four elements the criterion names. The worked example is fenced
   with four backticks so its inner fences render, which is the same technique
   the tool applies to file bodies.
-- **Commit:** PENDING
+- **Commit:** `a5d03e4eb46380f5e36043066501a42c9c3c72c3`
