@@ -548,16 +548,14 @@ mod tests {
         let manifest = include_str!("../Cargo.toml");
         // dev- and build-dependencies count too: INT-0001 says the test suite
         // adds none, and a [dev-dependencies] table is the only way it could.
-        let watched = [
-            "[dependencies]",
-            "[dev-dependencies]",
-            "[build-dependencies]",
-        ];
+        // Matched by substring rather than an exact list, because Cargo also
+        // accepts [dependencies.serde], [dev-dependencies.tempfile] and
+        // [target.'cfg(unix)'.dev-dependencies], which exact equality skips.
         let mut in_deps = false;
         for line in manifest.lines() {
             let line = line.trim();
             if line.starts_with('[') {
-                in_deps = watched.contains(&line);
+                in_deps = line.contains("dependencies");
                 continue;
             }
             if in_deps && !line.is_empty() && !line.starts_with('#') {
@@ -568,14 +566,37 @@ mod tests {
 
     // ---- T-002: walk, pattern matching, ignore/include resolution ----
 
-    fn tmp_dir(tag: &str) -> PathBuf {
+    /// A temp directory that removes itself even when an assertion panics, so
+    /// a failing test cannot strand a tree in the system temp directory.
+    struct Tmp(PathBuf);
+
+    impl Drop for Tmp {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    impl std::ops::Deref for Tmp {
+        type Target = Path;
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl AsRef<Path> for Tmp {
+        fn as_ref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    fn tmp_dir(tag: &str) -> Tmp {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static N: AtomicUsize = AtomicUsize::new(0);
         let n = N.fetch_add(1, Ordering::Relaxed);
         let dir = env::temp_dir().join(format!("mdeezl-{}-{tag}-{n}", process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
-        dir
+        Tmp(dir)
     }
 
     fn opts_for(root: &Path, ignore: &[&str], include: &[&str]) -> Options {
@@ -647,7 +668,6 @@ mod tests {
         }
         let root = walk(&opts_for(&dir, &[], &[])).unwrap();
         assert_eq!(names(&root), ["alpha.txt", "middle.txt", "zebra.txt"]);
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -676,7 +696,6 @@ mod tests {
         let link = root.children.iter().find(|c| c.name == "loop").unwrap();
         assert_eq!(link.kind, Kind::Link);
         assert!(link.children.is_empty(), "a symlink must not be descended");
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -727,7 +746,6 @@ mod tests {
             root.children.iter().any(|c| c.name == "sibling.txt"),
             "the walk must continue past an unlistable directory"
         );
-        let _ = fs::remove_dir_all(&dir);
     }
 
     /// A host-independent proof of the same failure branch: `read_dir` on a
@@ -743,7 +761,6 @@ mod tests {
         let (children, unreadable) = walk_children(&file, "regular.txt", &opts_for(&dir, &[], &[]));
         assert!(unreadable, "a path that cannot be listed must be marked");
         assert!(children.is_empty());
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -755,6 +772,23 @@ mod tests {
             "precondition: {missing:?} must not exist"
         );
         assert!(walk(&opts_for(&missing, &[], &[])).is_err());
+    }
+
+    /// The other half of the same clause: a root that exists but is a regular
+    /// file. It leaves `walk` through a different branch than the missing-root
+    /// case, and without this test a regression there would emit a document
+    /// with an empty tree and exit 0.
+    #[test]
+    fn test_walk_rejects_file_as_root() {
+        let dir = tmp_dir("fileroot");
+        let file = dir.join("regular.txt");
+        fs::write(&file, "x").unwrap();
+
+        let err = walk(&opts_for(&file, &[], &[])).unwrap_err();
+        assert!(
+            err.to_string().contains("not a directory"),
+            "unexpected error: {err}"
+        );
     }
 
     // ---- T-003: scaffold tree renderer ----
@@ -961,7 +995,6 @@ mod tests {
         for line in doc.lines().filter(|l| l.starts_with("File: ")) {
             assert!(!line.contains('\\'), "backslash in path: {line}");
         }
-        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -990,7 +1023,6 @@ mod tests {
         assert!(!doc.contains("target"), "absent from scaffold and contents");
         assert!(!doc.contains("built"));
         assert!(doc.contains("keep.txt") && doc.contains("kept"));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -1006,7 +1038,6 @@ mod tests {
         assert!(doc.contains("├── .github/") || doc.contains("└── .github/"));
         assert!(doc.contains("File: .github/ci.yml"));
         assert!(doc.contains("on: push"));
-        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

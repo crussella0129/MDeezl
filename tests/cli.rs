@@ -66,6 +66,41 @@ fn fences_balanced(doc: &str) -> bool {
     open.is_none()
 }
 
+/// The opening fence length of `path`'s section, and the longest backtick run
+/// inside that section's body. Balance alone cannot catch the regression this
+/// project actually fears — a fence that is too short closes early, re-opens on
+/// the body's next fence line, and still balances. The invariant that matters
+/// is opener > longest run inside.
+fn body_fence_vs_content(doc: &str, path: &str) -> (usize, usize) {
+    let marker = format!("---\nFile: {path}\n---\n\n");
+    let section = doc.split(&marker).nth(1).expect("section not found");
+    let section = section.split("\n---\nFile: ").next().unwrap();
+
+    let mut lines = section.lines();
+    let opener = lines.next().unwrap();
+    let open_len = opener.chars().take_while(|c| *c == '`').count();
+
+    // Everything up to the matching closing fence is body.
+    let mut longest = 0;
+    for line in lines {
+        if line.chars().take_while(|c| *c == '`').count() >= open_len
+            && line.trim_end_matches('`').is_empty()
+        {
+            break;
+        }
+        let mut run = 0;
+        for ch in line.chars() {
+            if ch == '`' {
+                run += 1;
+                longest = longest.max(run);
+            } else {
+                run = 0;
+            }
+        }
+    }
+    (open_len, longest)
+}
+
 /// The `## Structure` block's lines, with the fence lines and the root line
 /// removed, so a fixture's randomised root name does not leak into assertions.
 fn tree_lines(doc: &str) -> Vec<String> {
@@ -247,6 +282,15 @@ fn test_cli_markdown_body_does_not_close_its_own_fence() {
     );
     // The body's own ``` lines survive inside the block rather than ending it.
     assert!(doc.contains("before\n\n```\nfenced\n```\n\nafter"));
+    // The invariant balance alone cannot see: a too-short opener would close
+    // early on the body's first fence line, re-open on the second, and still
+    // balance. The opener must strictly outgrow the longest run inside.
+    let (opener, longest) = body_fence_vs_content(&doc, "notes.md");
+    assert_eq!(longest, 3, "fixture body holds a triple-backtick run");
+    assert!(
+        opener > longest,
+        "opening fence {opener} must outgrow the body's longest run {longest}"
+    );
 }
 
 /// The balance checker must be able to fail, or the test above proves nothing.
@@ -259,6 +303,12 @@ fn test_fences_balanced_detects_imbalance() {
         !fences_balanced("````md\nx\n```\n"),
         "closer shorter than opener does not close"
     );
+    // Known limitation, recorded rather than papered over: a too-short opener
+    // closes early and re-opens on the body's next fence line, so the document
+    // still balances. That regression is caught by the opener-vs-content
+    // invariant in test_cli_markdown_body_does_not_close_its_own_fence, not
+    // here.
+    assert!(fences_balanced("```md\n```\ninner\n```\n```\n"));
 }
 
 #[test]
@@ -398,6 +448,24 @@ fn test_cli_missing_root_exits_1_with_empty_stdout() {
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty(), "no partial document on stdout");
     assert!(!out.stderr.is_empty());
+}
+
+#[test]
+fn test_cli_file_as_root_exits_1() {
+    let dir = fixture("fileroot");
+    let out = Command::new(EXE)
+        .arg(dir.join("a.txt"))
+        .output()
+        .expect("failed to run mdeezl");
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        out.stdout.is_empty(),
+        "no document for a non-directory root"
+    );
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("not a directory"),
+        "the message must say why"
+    );
 }
 
 #[test]
