@@ -78,4 +78,4 @@
   `cargo test -- --nocapture` so a platform-gated SKIP is visible in the log
   rather than passing silently. `test_ci_workflow_runs_tests_on_both_platforms`
   asserts all three properties.
-- **Commit:** PENDING
+- **Commit:** `0c4f43294b6449fb45cb0e40d284d02c21fb267b`
