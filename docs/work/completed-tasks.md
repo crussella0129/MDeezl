@@ -79,3 +79,17 @@
   rather than passing silently. `test_ci_workflow_runs_tests_on_both_platforms`
   asserts all three properties.
 - **Commit:** `0c4f43294b6449fb45cb0e40d284d02c21fb267b`
+
+## T-007 (sprint 0)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-17
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** Rewrote `README.md` — previously one line of framing with no
+  usage — to document every flag, all four pattern forms, the pre-populated
+  ignore list, the three wrap modes, exit codes, and the degraded cases, plus
+  the deferred INT-0002/INT-0003 scope. `test_readme_documents_cli_surface`
+  asserts all four elements the criterion names. The worked example is fenced
+  with four backticks so its inner fences render, which is the same technique
+  the tool applies to file bodies.
+- **Commit:** PENDING

@@ -325,6 +325,35 @@ fn test_ci_workflow_runs_tests_on_both_platforms() {
     );
 }
 
+/// T-007. The README carries the same surface as `--help`, for a reader who
+/// has not built the binary yet.
+#[test]
+fn test_readme_documents_cli_surface() {
+    let readme = include_str!("../README.md");
+    for flag in ["-o", "--wrap", "--exclude", "--include", "--help"] {
+        assert!(readme.contains(flag), "README must document {flag}");
+    }
+    for form in [".*", "*.ext", "anything else"] {
+        assert!(
+            readme.contains(form),
+            "README must document the {form} form"
+        );
+    }
+    assert!(readme.contains("contains `/`"), "per-file pattern form");
+    for ignored in ["target", "node_modules", "dist", "build", "__pycache__"] {
+        assert!(
+            readme.contains(ignored),
+            "README must list the pre-populated entry {ignored}"
+        );
+    }
+    for mode in ["fence", "inline", "none"] {
+        assert!(
+            readme.contains(mode),
+            "README must document wrap mode {mode}"
+        );
+    }
+}
+
 #[test]
 fn test_cli_help_documents_patterns_and_caveats() {
     let out = Command::new(EXE).arg("--help").output().unwrap();
