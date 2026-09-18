@@ -9,4 +9,4 @@
   `Options`/`Wrap`/`Sink` types the later tasks consume, hand-written argument
   parsing over an iterator, and the help text documenting the four pattern
   forms and both caveats. `cargo clippy -D warnings` clean; 9 unit tests pass.
-- **Commit:** PENDING
+- **Commit:** `01ce91a8e4330d52359c2483b9c2450f40a83852`
