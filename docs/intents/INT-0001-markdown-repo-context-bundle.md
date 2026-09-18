@@ -2,7 +2,7 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0001
-- **State:** planned
+- **State:** active
 - **Work evidence:** [Sprint 0 build plan](../sprints/s0/sprint-plans/build-plan.md), [T-002 ignore and include resolution](../sprints/s0/sprint-plans/build-plan.md#t-002-filesystem-walk-with-ignore-and-include-resolution)
 - **Completion evidence:** none
 - **Code evidence:** none
@@ -232,3 +232,5 @@ minus `--include`, with no second hidden mechanism layered on top.
   fence on bodies — which had appeared only as an enum value in the wrap
   criterion while the plans asserted and tested the behaviour in detail. Same
   correction as the previous entry, applied to the remaining mode.
+- 2026-09-17: `planned → active`; sprint 0 Build Phase began implementing
+  T-001 through T-007 against this chapter. Work evidence unchanged.
