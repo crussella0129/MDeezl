@@ -546,15 +546,22 @@ mod tests {
     #[test]
     fn test_manifest_dependencies_table_is_empty() {
         let manifest = include_str!("../Cargo.toml");
+        // dev- and build-dependencies count too: INT-0001 says the test suite
+        // adds none, and a [dev-dependencies] table is the only way it could.
+        let watched = [
+            "[dependencies]",
+            "[dev-dependencies]",
+            "[build-dependencies]",
+        ];
         let mut in_deps = false;
         for line in manifest.lines() {
             let line = line.trim();
             if line.starts_with('[') {
-                in_deps = line == "[dependencies]";
+                in_deps = watched.contains(&line);
                 continue;
             }
             if in_deps && !line.is_empty() && !line.starts_with('#') {
-                panic!("[dependencies] must stay empty, found: {line}");
+                panic!("dependency tables must stay empty, found: {line}");
             }
         }
     }
@@ -682,7 +689,12 @@ mod tests {
         #[cfg(unix)]
         let blocked = {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o000)).is_ok()
+            let _ = fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o000));
+            // Probe the actual condition, not whether the chmod call returned
+            // Ok: running as root (the default in many containers) the chmod
+            // succeeds and read_dir still works, which would fail this test
+            // rather than skip it.
+            fs::read_dir(dir.join("locked")).is_err()
         };
         // Windows set_permissions only toggles the read-only attribute, which
         // does not block read_dir, and std exposes no ACL API.
@@ -700,24 +712,48 @@ mod tests {
         }
 
         let root = walk(&opts_for(&dir, &[], &[])).unwrap();
+
+        // Restore before asserting, so a failing assertion cannot leave a
+        // 0o000 directory behind that nothing can subsequently remove.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o755));
+        }
+
         let locked = root.children.iter().find(|c| c.name == "locked").unwrap();
         assert!(locked.unreadable, "unlistable directory must be marked");
         assert!(
             root.children.iter().any(|c| c.name == "sibling.txt"),
             "the walk must continue past an unlistable directory"
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(dir.join("locked"), fs::Permissions::from_mode(0o755));
-        }
+    /// A host-independent proof of the same failure branch: `read_dir` on a
+    /// regular file fails on every platform, so this covers "records the
+    /// directory as unreadable and does not abort" even where the permission
+    /// test above must skip.
+    #[test]
+    fn test_walk_children_marks_unreadable_path() {
+        let dir = tmp_dir("notadir");
+        let file = dir.join("regular.txt");
+        fs::write(&file, "x").unwrap();
+
+        let (children, unreadable) = walk_children(&file, "regular.txt", &opts_for(&dir, &[], &[]));
+        assert!(unreadable, "a path that cannot be listed must be marked");
+        assert!(children.is_empty());
         let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn test_walk_rejects_missing_root() {
         let missing = env::temp_dir().join("mdeezl-does-not-exist-xyzzy");
+        // The test means nothing if something else ever creates this path.
+        assert!(
+            !missing.exists(),
+            "precondition: {missing:?} must not exist"
+        );
         assert!(walk(&opts_for(&missing, &[], &[])).is_err());
     }
 
@@ -907,11 +943,25 @@ mod tests {
         );
     }
 
+    /// Exercises `join_rel` through a real nested walk. Handing
+    /// `render_section` a node whose `rel` is already forward-slashed would be
+    /// a tautology: the renderer only interpolates the string it is given, so
+    /// the platform behaviour lives in the walk, not here.
     #[test]
     fn test_relative_path_uses_forward_slashes() {
-        let out = render_section(&node_at("a/b/c.txt"), &ok_body("x\n"), Wrap::None);
-        assert!(out.contains("File: a/b/c.txt"));
-        assert!(!out.contains('\\'));
+        let dir = tmp_dir("slashes");
+        fs::create_dir_all(dir.join("a/b")).unwrap();
+        fs::write(dir.join("a/b/c.txt"), "x\n").unwrap();
+
+        let opts = opts_for(&dir, &[], &[]);
+        let root = walk(&opts).unwrap();
+        let doc = render_document(&root, &opts);
+
+        assert!(doc.contains("File: a/b/c.txt"));
+        for line in doc.lines().filter(|l| l.starts_with("File: ")) {
+            assert!(!line.contains('\\'), "backslash in path: {line}");
+        }
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

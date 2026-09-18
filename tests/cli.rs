@@ -9,19 +9,80 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 const EXE: &str = env!("CARGO_BIN_EXE_mdeezl");
 
-fn tmp_dir(tag: &str) -> PathBuf {
+/// A temp directory that removes itself even when an assertion panics, so a
+/// failing test cannot leave a tree behind in the system temp directory.
+struct Tmp(PathBuf);
+
+impl Drop for Tmp {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+impl std::ops::Deref for Tmp {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for Tmp {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+fn tmp_dir(tag: &str) -> Tmp {
     static N: AtomicUsize = AtomicUsize::new(0);
     let n = N.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!("mdeezl-e2e-{}-{tag}-{n}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
-    dir
+    Tmp(dir)
+}
+
+/// Walk the document as a fence state machine: a fence opens on a line of >= 3
+/// backticks (an info string may follow) and closes only on a line of nothing
+/// but backticks, at least as long as the opener. Counting "fence-only lines"
+/// and checking parity is not equivalent — it misses every opening fence that
+/// carries a language hint while still counting its closer.
+fn fences_balanced(doc: &str) -> bool {
+    let mut open: Option<usize> = None;
+    for line in doc.lines() {
+        let ticks = line.chars().take_while(|c| *c == '`').count();
+        match open {
+            None => {
+                if ticks >= 3 {
+                    open = Some(ticks);
+                }
+            }
+            Some(need) => {
+                if ticks >= need && line.trim_end_matches('`').is_empty() {
+                    open = None;
+                }
+            }
+        }
+    }
+    open.is_none()
+}
+
+/// The `## Structure` block's lines, with the fence lines and the root line
+/// removed, so a fixture's randomised root name does not leak into assertions.
+fn tree_lines(doc: &str) -> Vec<String> {
+    let structure = doc.split("## Structure").nth(1).unwrap();
+    let block = structure.split("## Contents").next().unwrap();
+    block
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.starts_with("```"))
+        .skip(1) // the root line carries the temp directory's name
+        .map(|l| l.to_string())
+        .collect()
 }
 
 /// A fixture exercising every interesting case at once:
 /// nested dirs, an ignored build dir, a dot-entry, a `.github` dir, a binary
 /// file, a Markdown file containing a fence, and two plain text files.
-fn fixture(tag: &str) -> PathBuf {
+fn fixture(tag: &str) -> Tmp {
     let dir = tmp_dir(tag);
     fs::create_dir(dir.join("src")).unwrap();
     fs::write(dir.join("src/main.rs"), "fn main() {}\n").unwrap();
@@ -75,7 +136,6 @@ fn test_cli_writes_document_to_stdout() {
     // Nothing was written to any other file.
     let after = fs::read_dir(&dir).unwrap().count();
     assert_eq!(before, after);
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -86,20 +146,26 @@ fn test_cli_document_section_order() {
     let structure = doc.lines().position(|l| l == "## Structure").unwrap();
     let contents = doc.lines().position(|l| l == "## Contents").unwrap();
     assert!(title < structure && structure < contents);
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn test_cli_tree_shape() {
     let dir = fixture("shape");
     let doc = ok_stdout(&dir, &[]);
-    // Sorted, with the exact box-drawing symbols and one space before the name.
-    assert!(doc.contains("├── a.txt"));
-    assert!(doc.contains("├── src/"));
-    assert!(doc.contains("│   └── main.rs"));
-    assert!(doc.contains("└── sub/"));
-    assert!(doc.contains("    └── one.txt"));
-    fs::remove_dir_all(&dir).unwrap();
+    // The whole scaffold, compared literally. Substring checks would not catch
+    // wrong ordering, a duplicated subtree, or a dropped entry.
+    let expected = [
+        "├── a.txt",
+        "├── blob.bin",
+        "├── debug.log",
+        "├── notes.md",
+        "├── one.txt",
+        "├── src/",
+        "│   └── main.rs",
+        "└── sub/",
+        "    └── one.txt",
+    ];
+    assert_eq!(tree_lines(&doc), expected);
 }
 
 #[test]
@@ -107,7 +173,6 @@ fn test_cli_file_header_format() {
     let dir = fixture("header");
     let doc = ok_stdout(&dir, &[]);
     assert!(doc.contains("\n---\nFile: src/main.rs\n---\n"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -121,7 +186,11 @@ fn test_cli_default_ignores_target_and_dotfiles() {
         "dot-entries are ignored by default"
     );
     assert!(!doc.contains("hidden"));
-    fs::remove_dir_all(&dir).unwrap();
+    // Positive controls. Without these, a regression that emitted an empty
+    // document would satisfy every assertion above.
+    assert!(doc.contains("├── a.txt"), "non-ignored siblings survive");
+    assert!(doc.contains("File: src/main.rs"));
+    assert!(doc.contains("fn main() {}"), "bodies are still emitted");
 }
 
 #[test]
@@ -133,7 +202,6 @@ fn test_cli_include_readmits_dot_entry() {
     assert!(doc.contains("on: push"));
     // Other dot-entries stay out.
     assert!(!doc.contains(".secret"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -143,7 +211,6 @@ fn test_cli_exclude_adds_pattern() {
     assert!(!doc.contains("debug.log"));
     assert!(!doc.contains("noisy"));
     assert!(doc.contains("a.txt"), "siblings survive");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -154,7 +221,6 @@ fn test_cli_exclude_single_file_by_path() {
     // The same-named file at the root is untouched.
     assert!(doc.contains("File: one.txt"));
     assert!(doc.contains("root one"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -167,7 +233,6 @@ fn test_cli_binary_file_elided() {
         !out.stdout.contains(&0xffu8),
         "raw bytes must not be emitted"
     );
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -176,13 +241,24 @@ fn test_cli_markdown_body_does_not_close_its_own_fence() {
     let doc = ok_stdout(&dir, &[]);
     // The notes.md body holds a ``` run, so its fence must be longer.
     assert!(doc.contains("````markdown\n"));
-    // Every fence opened is closed: an even count of fence-only lines.
-    let fence_lines = doc
-        .lines()
-        .filter(|l| l.starts_with("```") && l.trim_end_matches('`').is_empty())
-        .count();
-    assert_eq!(fence_lines % 2, 0, "fences must balance");
-    fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        fences_balanced(&doc),
+        "every fence opened must be closed by a long-enough fence"
+    );
+    // The body's own ``` lines survive inside the block rather than ending it.
+    assert!(doc.contains("before\n\n```\nfenced\n```\n\nafter"));
+}
+
+/// The balance checker must be able to fail, or the test above proves nothing.
+#[test]
+fn test_fences_balanced_detects_imbalance() {
+    assert!(fences_balanced("```rust\nx\n```\n"));
+    assert!(fences_balanced("````md\n```\ninner\n```\n````\n"));
+    assert!(!fences_balanced("```rust\nx\n"), "unclosed fence");
+    assert!(
+        !fences_balanced("````md\nx\n```\n"),
+        "closer shorter than opener does not close"
+    );
 }
 
 #[test]
@@ -192,7 +268,6 @@ fn test_cli_fence_mode_tree_in_one_block() {
     let structure = doc.split("## Structure").nth(1).unwrap();
     let tree = structure.split("## Contents").next().unwrap();
     assert_eq!(tree.matches("```").count(), 2, "exactly one fenced block");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -200,7 +275,6 @@ fn test_cli_rust_body_carries_language_hint() {
     let dir = fixture("hint");
     let doc = ok_stdout(&dir, &[]);
     assert!(doc.contains("```rust\nfn main() {}"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -212,7 +286,6 @@ fn test_cli_inline_mode_keeps_bodies_fenced() {
         "tree lines are backtick-wrapped"
     );
     assert!(doc.contains("```rust\n"), "bodies are still fenced");
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -220,7 +293,6 @@ fn test_cli_inline_mode_body_carries_language_hint() {
     let dir = fixture("inlinehint");
     let doc = ok_stdout(&dir, &["--wrap", "inline"]);
     assert!(doc.contains("```rust\nfn main() {}"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -233,7 +305,13 @@ fn test_cli_wrap_none_has_no_fences() {
         !tree.contains('`'),
         "no fences and no backticks in the tree"
     );
-    fs::remove_dir_all(&dir).unwrap();
+    // And bodies are unfenced too: the header is followed directly by the
+    // file's text. Asserted separately, because the tree slice above cannot
+    // see the content sections at all.
+    assert!(
+        doc.contains("---\nFile: src/main.rs\n---\n\nfn main() {}\n"),
+        "a body in none mode carries no fence"
+    );
 }
 
 #[test]
@@ -244,7 +322,6 @@ fn test_cli_wrap_none_preserves_section_separation() {
     // section's `---` would underline it as a setext heading and swallow the
     // following header.
     assert!(doc.contains("last line of a\n\n---\nFile: "));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -256,7 +333,6 @@ fn test_cli_output_flag_writes_file() {
     assert!(out.stdout.is_empty(), "stdout stays empty when -o is given");
     let written = fs::read_to_string(&out_path).unwrap();
     assert!(written.contains("## Structure"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
@@ -267,16 +343,38 @@ fn test_cli_nested_paths_use_forward_slashes() {
         assert!(!line.contains('\\'), "backslash in path: {line}");
     }
     assert!(doc.contains("File: sub/one.txt"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn test_cli_output_is_byte_identical_across_runs() {
     let dir = fixture("determinism");
-    let first = run(&dir, &[]).stdout;
-    let second = run(&dir, &[]).stdout;
+    // Both runs must succeed and produce something: two identically-empty
+    // outputs from a binary that started failing would otherwise "prove"
+    // determinism.
+    let first = ok_stdout(&dir, &[]);
+    let second = ok_stdout(&dir, &[]);
+    assert!(!first.is_empty());
     assert_eq!(first, second);
-    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// With no positional argument MDeezl scans the current directory. Every other
+/// end-to-end test passes an explicit path, so without this one that half of
+/// the criterion is only ever checked at the argument-parsing level.
+#[test]
+fn test_cli_no_path_scans_current_directory() {
+    let dir = fixture("cwd");
+    let out = Command::new(EXE)
+        .current_dir(&dir)
+        .output()
+        .expect("failed to run mdeezl");
+    assert!(out.status.success());
+    let doc = stdout_of(&out);
+    let root_name = dir.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(
+        doc.starts_with(&format!("# {root_name}\n")),
+        "the title must name the scanned directory, not `.`"
+    );
+    assert!(doc.contains("File: src/main.rs"));
 }
 
 #[test]
@@ -286,12 +384,16 @@ fn test_cli_usage_error_exits_2() {
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
     assert!(String::from_utf8_lossy(&out.stderr).contains("banana"));
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 #[test]
 fn test_cli_missing_root_exits_1_with_empty_stdout() {
     let missing = std::env::temp_dir().join("mdeezl-absent-xyzzy");
+    // The test means nothing if something else ever creates this path.
+    assert!(
+        !missing.exists(),
+        "precondition: {missing:?} must not exist"
+    );
     let out = Command::new(EXE).arg(&missing).output().unwrap();
     assert_eq!(out.status.code(), Some(1));
     assert!(out.stdout.is_empty(), "no partial document on stdout");
@@ -306,7 +408,6 @@ fn test_cli_unwritable_output_exits_1() {
     assert_eq!(out.status.code(), Some(1), "not a panic's 101");
     assert!(out.stdout.is_empty());
     assert!(!out.stderr.is_empty());
-    fs::remove_dir_all(&dir).unwrap();
 }
 
 /// T-006. The one check whose absence would let the sprint checkpoint be green
