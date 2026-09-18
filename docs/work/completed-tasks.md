@@ -93,3 +93,18 @@
   with four backticks so its inner fences render, which is the same technique
   the tool applies to file bodies.
 - **Commit:** `a5d03e4eb46380f5e36043066501a42c9c3c72c3`
+
+## T-101 (sprint 0 follow-up)
+
+- **Intent:** [INT-0001](../intents/INT-0001-markdown-repo-context-bundle.md)
+- **Completed:** 2026-09-18
+- **Touched:** `docs/sprints/s0/sprint-tests/test-report.md`,
+  `docs/sprints/s0/sprint-tests/e2e-tests.md`
+- **Summary:** The checkpoint CI run confirmed the one acceptance criterion the
+  sprint 0 test report had marked unverified. Both legs pass — 44 unit and 28
+  end-to-end on each — and the Linux leg ran
+  `test_unreadable_dir_marked_and_walk_continues` for real with no SKIP line,
+  proving the "continues traversing" half of the unreadable-directory clause
+  that had no executed evidence anywhere at sprint close.
+- **Commit:** run <https://github.com/crussella0129/MDeezl/actions/runs/35292783471>
+

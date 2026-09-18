@@ -1,6 +1,7 @@
 # Sprint 0 Test Report
 
-- **Verdict:** pass, with one criterion explicitly unverified (see Not verified).
+- **Verdict:** pass. The one criterion left unverified at sprint close was
+  confirmed by the checkpoint CI run; see CI confirmation.
 - **Tested head:** `2e48a1cb5e7380631092e2e74371f28792afb583` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture` (the project's canonical suite)
 - **Host:** Windows 11, `cargo 1.96.0` / `rustc 1.96.0`
@@ -44,7 +45,7 @@ long-enough closer, and the longest opening fence is 5 backticks — produced
 where the sprint plans contain four-backtick runs. A fixed three-backtick
 wrapper would have corrupted the document at exactly that point.
 
-## Not verified
+## Not verified (resolved — see CI confirmation below)
 
 **"Verification runs on both Linux and Windows" is not verified.** Branch `dev`
 has never been pushed, so `.github/workflows/sprint-loops-ci.yml` has never run
@@ -83,3 +84,35 @@ This is recorded as a known gap, not a pass. It closes when the sprint's
 
 None of these were implementation bugs — the implementation was correct in each
 case. They were tests that would have gone green through a real regression.
+
+## CI confirmation
+
+Recorded after sprint close, when the checkpoint at
+[PR #1](https://github.com/crussella0129/MDeezl/pull/1) triggered the workflow
+for the first time. **The criterion above is now verified.**
+
+| Check | Result |
+|-------|--------|
+| `rust (ubuntu-latest)` | pass — 44 unit + 28 end-to-end |
+| `rust (windows-latest)` | pass — 44 unit + 28 end-to-end |
+
+Run: <https://github.com/crussella0129/MDeezl/actions/runs/35292783471>
+
+The matrix did the job it was pinned for, and the logs show it:
+
+- On **ubuntu-latest**, `test_unreadable_dir_marked_and_walk_continues ... ok`
+  appears with **no SKIP line**. The permission-based test executed for real, so
+  the "continues traversing the remainder of the tree" half of the
+  unreadable-directory clause — unexecuted anywhere at sprint close — is now
+  proved.
+- On **windows-latest**, the same test printed
+  `SKIP test_unreadable_dir_marked_and_walk_continues: this platform cannot make
+  a directory unlistable through std alone`, which is the designed behaviour and
+  is visible only because the workflow runs with `--nocapture`.
+- `test_cli_nested_paths_use_forward_slashes` passed on both, so the
+  `/`-separator criterion is confirmed on the platform where it can actually
+  fail.
+
+A single-OS pipeline would have left one of these two guarantees verified
+nowhere. That is what T-006 pinned the matrix for, and it paid out on the first
+run.

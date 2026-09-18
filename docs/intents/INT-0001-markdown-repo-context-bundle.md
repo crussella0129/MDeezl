@@ -2,9 +2,9 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0001
-- **State:** active
+- **State:** realized
 - **Work evidence:** [Sprint 0 build plan](../sprints/s0/sprint-plans/build-plan.md), [T-002 ignore and include resolution](../sprints/s0/sprint-plans/build-plan.md#t-002-filesystem-walk-with-ignore-and-include-resolution)
-- **Completion evidence:** none
+- **Completion evidence:** [T-101 completion](../work/completed-tasks.md#t-101-sprint-0-follow-up), [T-005 completion](../work/completed-tasks.md#t-005-sprint-0)
 - **Code evidence:** [src/main.rs](../../src/main.rs), [Cargo.toml](../../Cargo.toml)
 - **Test evidence:** [Sprint 0 test report](../sprints/s0/sprint-tests/test-report.md), [unit](../sprints/s0/sprint-tests/unit-tests.md), [integration](../sprints/s0/sprint-tests/integration-tests.md), [end-to-end](../sprints/s0/sprint-tests/e2e-tests.md)
 - **Documentation evidence:** [README.md](../../README.md)
@@ -246,4 +246,14 @@ minus `--include`, with no second hidden mechanism layered on top.
   before the checkpoint exists, because the checkpoint is what first pushes the
   branch and triggers CI. Carried forward as T-101. The gitignore gap recorded
   in Alternatives and Consequences was promoted to
+  [INT-0004](INT-0004-gitignore-aware-exclusion.md).
+- 2026-09-18: `active → realized`. The checkpoint CI run
+  (<https://github.com/crussella0129/MDeezl/actions/runs/35292783471>) passed on
+  both `ubuntu-latest` and `windows-latest`, verifying the two-OS criterion that
+  was outstanding at sprint close and executing, on Linux, the
+  unreadable-directory test that skips on Windows. Every acceptance criterion is
+  now proved by executed evidence; Completion, Code, Test, and Documentation
+  evidence are attached. Follow-on work lives in
+  [INT-0002](INT-0002-git-and-remote-sources.md),
+  [INT-0003](INT-0003-llm-scaffold-comments.md), and
   [INT-0004](INT-0004-gitignore-aware-exclusion.md).

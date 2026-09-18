@@ -70,10 +70,14 @@ with the backtick lines inside Markdown bodies, and excluded every opening fence
 carrying a language hint. Both the claim and the test that made it have been
 replaced with the state machine above.
 
-## Pending CI
+## Pending CI (resolved 2026-09-18)
 
-**The INT-0001 criterion "Verification runs on both Linux and Windows" is not
-verified.** Branch `dev` has never been pushed, so
+**Resolved.** The checkpoint CI run confirmed this criterion; see the CI
+confirmation section of [test-report.md](test-report.md). The original text is
+kept below as the record of what was unverified at sprint close.
+
+**The INT-0001 criterion "Verification runs on both Linux and Windows" was not
+verified at sprint close.** Branch `dev` has never been pushed, so
 `.github/workflows/sprint-loops-ci.yml` has never executed on any runner. The
 only evidence is `test_ci_workflow_runs_tests_on_both_platforms`, a static read
 of the YAML committed alongside it; it would pass just as happily on a workflow
@@ -86,6 +90,5 @@ Two further items depend on that first run and are likewise unverified:
 - every result in this file on a non-Windows host — all local runs were on
   Windows 11.
 
-This is recorded as a known gap rather than a pass. It closes when the sprint's
-`dev -> main` checkpoint opens and the matrix runs green; the Loop Phase owns
-that checkpoint.
+This was recorded as a known gap rather than a pass. It closed on
+2026-09-18 when the checkpoint opened and the matrix ran green on both runners.
