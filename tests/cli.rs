@@ -546,7 +546,7 @@ fn test_cli_help_documents_patterns_and_caveats() {
 /// T-001. `--help` must say where an omission can come from.
 #[test]
 fn test_cli_help_names_both_exclusion_sources() {
-    let out = Command::new(EXE).arg("--help").output().unwrap();
+    let out = isolate(Command::new(EXE).arg("--help")).output().unwrap();
     assert!(out.status.success());
     let help = String::from_utf8(out.stdout).unwrap();
     // Needles only the sprint 1 text contains: sprint 0's help already said
@@ -811,6 +811,9 @@ fn gitignore_fixture(tag: &str) -> Tmp {
     put(&dir, "keep.log", "keep log body\n");
     put(&dir, "keep.txt", "keep text body\n");
     put(&dir, "src/main.rs", "fn main() {}\n");
+    // On the built-in list, not in .gitignore: must still be omitted when the
+    // query succeeds, since gitignore layers onto the list, never replaces it.
+    put(&dir, "target/artifact.txt", "built\n");
     dir
 }
 
@@ -818,7 +821,19 @@ fn gitignore_fixture(tag: &str) -> Tmp {
 fn test_cli_gitignore_omits_from_both_halves() {
     require_git!("test_cli_gitignore_omits_from_both_halves");
     let dir = gitignore_fixture("gi-both");
-    let doc = ok_iso(&dir, &[]);
+    let out = run_iso(&dir, &[]);
+    assert!(out.status.success());
+    assert!(
+        out.stderr.is_empty(),
+        "the query must run: {}",
+        stderr_of(&out)
+    );
+    let doc = stdout_of(&out);
+    // The built-in list still applies on a run where git answered.
+    assert!(!in_tree(&doc, "target"), "built-in list: target/");
+    assert!(!in_tree(&doc, ".git"), "built-in list: .git");
+    assert!(!in_tree(&doc, ".gitignore"), "built-in list: .gitignore");
+    assert!(!doc.contains("built\n"));
     for gone in ["out", "a.o", "app.log"] {
         assert!(
             !in_tree(&doc, gone),

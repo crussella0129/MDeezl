@@ -32,7 +32,7 @@
 | `test_git_ignored_tracked_file_not_reported` | A staged file matching `*.log` is not reported; an untracked one beside it is. |
 | `test_git_ignored_large_list_no_deadlock` | 20,000 synthetic paths of **60 bytes each** (asserted). The inbound payload is asserted to exceed **1.2 MB**. Outbound is larger still, because each record repeats the path beside its matching rule. All paths return under a 60 s `recv_timeout`. |
 | `test_git_ignored_large_list_outside_work_tree_errs_without_panic` | The same list against a plain directory: git exits during setup, the writer meets a broken pipe, and the result is `Err`, not a panic. |
-| `test_git_local_env_vars_cover_gits_list` | Every variable `git rev-parse --local-env-vars` lists on the running git appears in the removal list. A git that adds one will fail here, instead of letting it silently redirect the query. |
+| `test_git_local_env_vars_cover_gits_list` | Every variable `git rev-parse --local-env-vars` lists on the running git appears in the removal list. A git that adds one will fail here, instead of letting it silently redirect the query. The test also asserts the list names `GIT_DIR` and `GIT_INDEX_FILE`, so empty output cannot pass it vacuously. |
 | `test_run_spawns_git_exactly_once` | The `#[cfg(test)]` spawn counter reads exactly 1 after a full `run`. The test **also reads the document** that run wrote: the gitignored `b.log` is absent and the nested `src/d/e.rs` is present. The count alone would pass even if the query had failed, because `run` returns `Ok` then. |
 
 ## T-003 — pruning
@@ -67,7 +67,7 @@ Two tests skipped one case each on this Windows host, printing a SKIP. The Linux
 
 ## Isolation
 
-The in-process T-002 tests are isolated too. A `#[cfg(test)]` block in `git_ignored` sets these on the git **child**:
+Every in-process test that queries `git_ignored` is isolated. A `#[cfg(test)]` block in `git_ignored` sets these on the git **child**:
 
 - `GIT_CONFIG_NOSYSTEM`
 - `GIT_CONFIG_GLOBAL` (pointing at an empty file)
@@ -75,6 +75,8 @@ The in-process T-002 tests are isolated too. A `#[cfg(test)]` block in `git_igno
 - `GIT_CEILING_DIRECTORIES`
 
 These match what the end-to-end harness sets. No process-wide `set_var` is needed.
+
+One test spawns git outside that path: `test_git_local_env_vars_cover_gits_list` runs `git rev-parse --local-env-vars` directly. That command prints a fixed list compiled into git, independent of configuration and repository, so isolation would not change its result. The test also asserts the list contains `GIT_DIR` and `GIT_INDEX_FILE`, so empty output cannot pass it vacuously.
 
 An earlier version of this record claimed the in-process tests *could not* be isolated without `set_var`. That was wrong; the critique pointed out the child-command approach. Two details matter:
 

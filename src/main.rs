@@ -1517,7 +1517,15 @@ mod tests {
             .output()
             .unwrap();
         assert!(out.status.success());
-        for var in String::from_utf8_lossy(&out.stdout).lines() {
+        let listed = String::from_utf8_lossy(&out.stdout);
+        // Guard against a vacuous pass on empty output.
+        for known in ["GIT_DIR", "GIT_INDEX_FILE"] {
+            assert!(
+                listed.lines().any(|l| l.trim() == known),
+                "git's list should include {known}: {listed:?}"
+            );
+        }
+        for var in listed.lines() {
             assert!(
                 GIT_LOCAL_ENV_VARS.contains(&var.trim()),
                 "git lists {var} as repository-local, but mdeezl does not remove it"

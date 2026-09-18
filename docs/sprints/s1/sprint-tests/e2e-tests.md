@@ -18,7 +18,7 @@ These tests run the real binary against **real git repositories**, which the tes
 
 | Test | Verifies |
 |------|----------|
-| `test_cli_help_names_both_exclusion_sources` | `--help` contains text that only the sprint 1 help has: `--include outranks both`, `git on your PATH`, `git work tree`, `.gitignore`, `--no-gitignore`. The sprint 0 help already said "PATH" and "the ignore list", so the earlier needles proved nothing. |
+| `test_cli_help_names_both_exclusion_sources` | Run through the isolation helper. `--help` contains text that only the sprint 1 help has: `--include outranks both`, `git on your PATH`, `git work tree`, `.gitignore`, `--no-gitignore`. The sprint 0 help already said "PATH" and "the ignore list", so the earlier needles proved nothing. |
 
 ## T-002 — verifiable before pruning existed
 
@@ -34,7 +34,7 @@ These tests run the real binary against **real git repositories**, which the tes
 
 | Test | Verifies |
 |------|----------|
-| `test_cli_gitignore_omits_from_both_halves` | Rules `out/`, `*.log`, `!keep.log`: ignored entries are absent from both the scaffold and the contents, and kept entries are present in both. |
+| `test_cli_gitignore_omits_from_both_halves` | Rules `out/`, `*.log`, `!keep.log`: ignored entries are absent from both the scaffold and the contents, and kept entries are present in both. It also checks that **the built-in list still applies on a run where git answered** (empty stderr): `target/`, `.git`, and `.gitignore` are absent. Before round two of the critique, every built-in-list assertion ran in a plain directory where the query degrades. If the list had been dropped whenever git answered, nothing would have caught it. |
 | `test_cli_gitignore_honours_full_syntax` | Negation, `**/generated/`, a nested `.gitignore`, `.git/info/exclude`, and repo-local `core.excludesFile`, each checked end to end. |
 | `test_cli_scan_subdir_applies_root_rules` | Scanning `repo/sub` still obeys the repository-root `*.log`. |
 | `test_cli_tracked_file_matching_pattern_is_bundled` | A staged `tracked.log` is present, body included. An untracked `free.log` under the same rule is **absent**, and stderr is empty — so the rule really ran and the tracked file was kept anyway. |
