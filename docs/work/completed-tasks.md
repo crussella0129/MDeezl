@@ -64,4 +64,4 @@
   tests. Self-check: running `mdeezl .` against this repository produces a
   140 KB bundle whose fences balance, with a 5-backtick opening fence where a
   sprint plan contains a 4-backtick run — the case a fixed fence would corrupt.
-- **Commit:** PENDING
+- **Commit:** `b87a0eaa7a83419563997a5d2850d8c81fc9a06e`
