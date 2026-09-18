@@ -161,3 +161,21 @@
   the repo's own `*.tmp` rule while a `.txt` probe was kept, and
   `--no-gitignore` restored both. The run took 0.2 s with an empty stderr.
 - **Commit:** `d38c65c4700f2a45280f85d1998c5fa0c519aed5`
+
+## T-004 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** "The ignore list" became "What is omitted", naming two sources
+  with `--include` outranking both. A new subsection documents the
+  repository's `.gitignore`: the git and work-tree requirement, the
+  degradation behaviour, the off switch, the tracked-file rule, the
+  directory-include exemption and its limit, the ancestor rule, the
+  ignored-scan-root skip, the nested-repository limitation, and the partial
+  matching of glob-character names. The usage line and flag table gained
+  `--no-gitignore`. The sprint 0 sentence "No gitignore support yet" is gone.
+  `test_readme_documents_gitignore` asserts every item. Two of its needles
+  first failed on case and on line wrapping, and were fixed in the test rather
+  than by bending the README.
+- **Commit:** PENDING

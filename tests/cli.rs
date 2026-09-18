@@ -1118,3 +1118,44 @@ fn test_cli_gitignore_output_is_byte_identical_across_runs() {
     assert!(!first.is_empty());
     assert_eq!(first, second);
 }
+
+// ---- T-004: the README ----
+
+#[test]
+fn test_readme_documents_gitignore() {
+    let readme = include_str!("../README.md");
+    for (what, needle) in [
+        ("the second exclusion source", "`.gitignore`"),
+        ("the off switch", "--no-gitignore"),
+        ("the git requirement", "Git must be on your `PATH`"),
+        ("the work-tree requirement", "git work tree"),
+        (
+            "the degradation behaviour",
+            "gitignore filtering was skipped",
+        ),
+        ("the tracked-file rule", "Tracked files are kept"),
+        (
+            "the directory-include exemption",
+            "Including a gitignored directory",
+        ),
+        ("the exemption's limit", "`--include build`"),
+        (
+            "the ancestor rule",
+            "An include cannot reach inside a pruned directory",
+        ),
+        (
+            "the submodule limitation",
+            "Nested repositories and submodules",
+        ),
+        (
+            "the glob-character limitation",
+            "are matched only partially",
+        ),
+    ] {
+        assert!(readme.contains(needle), "README must document {what}");
+    }
+    assert!(
+        !readme.contains("No gitignore support yet"),
+        "the sprint 0 statement must be gone"
+    );
+}
