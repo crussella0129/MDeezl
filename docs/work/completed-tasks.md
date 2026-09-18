@@ -178,4 +178,4 @@
   `test_readme_documents_gitignore` asserts every item. Two of its needles
   first failed on case and on line wrapping, and were fixed in the test rather
   than by bending the README.
-- **Commit:** PENDING
+- **Commit:** `b3c5183ff5d904073d12e786adedd7792fb56699`
