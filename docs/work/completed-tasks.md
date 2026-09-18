@@ -117,4 +117,4 @@
   `--no-gitignore` flag. The help text now has a "What is omitted" section
   naming both exclusion sources, the off switch, and the requirement for git on
   `PATH` and a git work tree. 3 new tests; all 72 sprint 0 tests pass unedited.
-- **Commit:** PENDING
+- **Commit:** `1f45a15ecbbe8ff3c3bb2ea61edc512cfc90f429`
