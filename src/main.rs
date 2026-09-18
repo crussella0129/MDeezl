@@ -542,6 +542,19 @@ fn git_ignored(root: &Path, paths: &[String]) -> Result<HashSet<String>, String>
     for var in GIT_LOCAL_ENV_VARS {
         cmd.env_remove(var);
     }
+    // Under test, isolate git from the host's configuration and from any
+    // repository above the temp directory, as the end-to-end harness does. Set
+    // on the child, so no process-wide `set_var` is needed.
+    #[cfg(test)]
+    {
+        let iso = env::temp_dir().join(format!("mdeezl-gitiso-{}", process::id()));
+        let _ = fs::create_dir_all(&iso);
+        let _ = fs::write(iso.join("gitconfig"), "");
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
+            .env("XDG_CONFIG_HOME", &iso)
+            .env("GIT_CEILING_DIRECTORIES", env::temp_dir());
+    }
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         io::ErrorKind::NotFound => "git was not found on PATH".to_string(),
         _ => format!("could not run git: {e}"),
@@ -1445,15 +1458,71 @@ mod tests {
         touch(&dir, "sub/b.txt");
         touch(&dir, "nested/.git"); // a nested repository's gitlink file
         touch(&dir, "nested/c.txt");
+        // An ordinary nested clone: its `.git` is a directory, not a gitlink
+        // file. Both forms must stop the walk, or `.exists()` could regress to
+        // `.is_file()` unnoticed.
+        fs::create_dir_all(dir.join("clone/.git")).unwrap();
+        touch(&dir, "clone/d.txt");
 
         let tree = walk(&opts_for(&dir, &[".*"], &[])).unwrap();
         let got = gitignore_candidates(&dir, &tree);
 
-        for want in [".", "a.txt", "sub", "sub/b.txt", "nested"] {
+        for want in [".", "a.txt", "sub", "sub/b.txt", "nested", "clone"] {
             assert!(got.contains(&want.to_string()), "missing {want}: {got:?}");
         }
         assert!(!got.contains(&"nested/c.txt".to_string()));
+        assert!(!got.contains(&"clone/d.txt".to_string()));
         assert!(!got.iter().any(String::is_empty));
+    }
+
+    /// The directory-removal guard's precondition, pinned against whatever git
+    /// the tests run on. Planning measured it on git 2.54; CI runs a newer git.
+    /// If a git ever stopped reporting the escaped directory, the end-to-end
+    /// guard test would still pass without exercising the guard -- this fails.
+    #[test]
+    fn test_git_ignored_whitelist_reports_escaped_directory() {
+        require_git!("test_git_ignored_whitelist_reports_escaped_directory");
+        let dir = init_repo("gi-whitelist");
+        fs::write(dir.join(".gitignore"), "*\n!*/\n!*.tsx\n!.gitignore\n").unwrap();
+        touch(&dir, "app/[slug]/page.tsx");
+        touch(&dir, "app/[slug]/notes.md");
+        git_add(&dir, &["app/[slug]/page.tsx"]);
+        let got = git_ignored(
+            &dir,
+            &strings(&[
+                ".",
+                "app",
+                "app/[slug]",
+                "app/[slug]/page.tsx",
+                "app/[slug]/notes.md",
+            ]),
+        )
+        .unwrap();
+        assert!(
+            got.contains("app/[slug]"),
+            "precondition for the guard: {got:?}"
+        );
+        assert!(!got.contains("app/[slug]/page.tsx"));
+        assert!(got.contains("app/[slug]/notes.md"));
+    }
+
+    /// Every variable git lists as repository-local must be removed from the
+    /// query's environment. A git that adds one should fail this, not silently
+    /// let it redirect the query.
+    #[test]
+    fn test_git_local_env_vars_cover_gits_list() {
+        require_git!("test_git_local_env_vars_cover_gits_list");
+        let out = Command::new("git")
+            .args(["rev-parse", "--local-env-vars"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        for var in String::from_utf8_lossy(&out.stdout).lines() {
+            assert!(
+                GIT_LOCAL_ENV_VARS.contains(&var.trim()),
+                "git lists {var} as repository-local, but mdeezl does not remove it"
+            );
+        }
     }
 
     #[test]
@@ -1703,14 +1772,14 @@ mod tests {
         assert!(got.contains("free.log"));
     }
 
-    /// 20,000 synthetic paths of about 60 bytes: over 1.2 MiB each way, far past
+    /// 20,000 synthetic paths of 60 bytes: over 1.2 MB each way, far past
     /// any pipe buffer, which is what deadlocks a write-then-read implementation.
     /// File globs match paths that do not exist, so no files are created.
     fn synthetic_paths() -> Vec<String> {
         (0..20_000)
             .map(|i| {
                 format!(
-                    "generated_output/directory_{:03}/object_file_{i:06}.o",
+                    "generated_output/directory_{:03}/compiled_object_file_{i:06}.o",
                     i / 100
                 )
             })
@@ -1732,7 +1801,12 @@ mod tests {
         require_git!("test_git_ignored_large_list_no_deadlock");
         let dir = init_repo("gi-large");
         fs::write(dir.join(".gitignore"), "*.o\n").unwrap();
-        let got = call_with_deadline(&dir, synthetic_paths()).unwrap();
+        let paths = synthetic_paths();
+        assert_eq!(paths[0].len(), 60, "paths are about 60 bytes, as planned");
+        // Checked, not claimed: over 1.2 MB inbound; each outbound record
+        // repeats the path beside the matching rule, so outbound is larger.
+        assert!(nul_payload(&paths).len() > 1_200_000);
+        let got = call_with_deadline(&dir, paths).unwrap();
         assert_eq!(got.len(), 20_000);
     }
 
@@ -1762,6 +1836,18 @@ mod tests {
         GIT_SPAWNS.with(|n| n.set(0));
         run(&opts).unwrap();
         assert_eq!(GIT_SPAWNS.with(|n| n.get()), 1);
+        // And the one call did its job end to end: pruned, then rendered. `run`
+        // returns Ok even when the query fails, so the count alone would not
+        // show that.
+        let doc = fs::read_to_string(sink.join("doc.md")).unwrap();
+        assert!(
+            !doc.contains("File: b.log"),
+            "gitignored file must be pruned"
+        );
+        assert!(
+            doc.contains("File: src/d/e.rs"),
+            "nested kept file must render"
+        );
     }
 
     // ---- Sprint 1 / T-003: pruning ----

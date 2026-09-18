@@ -549,12 +549,14 @@ fn test_cli_help_names_both_exclusion_sources() {
     let out = Command::new(EXE).arg("--help").output().unwrap();
     assert!(out.status.success());
     let help = String::from_utf8(out.stdout).unwrap();
+    // Needles only the sprint 1 text contains: sprint 0's help already said
+    // "PATH" (the positional argument) and "the ignore list".
     for needle in [
-        "ignore list",
+        "--include outranks both",
         ".gitignore",
         "--no-gitignore",
-        "PATH",
-        "work tree",
+        "git on your PATH",
+        "git work tree",
     ] {
         assert!(help.contains(needle), "help must mention {needle}");
     }
@@ -713,6 +715,7 @@ fn test_cli_missing_git_degrades_with_reason() {
     .expect("failed to run mdeezl");
     assert!(out.status.success());
     let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "exactly one stderr line: {err}");
     assert!(err.starts_with(SKIP_NOTICE), "{err}");
     assert!(err.contains("git was not found"), "{err}");
     assert_eq!(tree_lines(&stdout_of(&out)), FIXTURE_TREE);
@@ -728,6 +731,7 @@ fn test_cli_ignored_scan_root_degrades_with_reason() {
     let out = run_iso(&dir.join("out"), &[]);
     assert!(out.status.success());
     let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "exactly one stderr line: {err}");
     assert!(err.starts_with(SKIP_NOTICE), "{err}");
     assert!(err.contains("itself ignored"), "{err}");
     // Every file present, not a title over an empty tree.
@@ -742,20 +746,33 @@ fn test_cli_ignores_ambient_git_environment() {
     put(&dir, ".gitignore", "*.log\n");
     put(&dir, "app.log", "log\n");
     put(&dir, "keep.txt", "keep\n");
+    put(&dir, "tracked.log", "tracked\n");
+    git_add(&dir, &["tracked.log"]);
     let bogus = std::env::temp_dir().join("mdeezl-no-such-git-dir");
     assert!(!bogus.exists(), "precondition: {bogus:?} must not exist");
     // Deliberately NOT through `isolate`'s removal: these variables are the
-    // point. If the binary did not remove them, GIT_DIR would override -C
-    // discovery, git would fail, and the skip notice would appear.
+    // point. Left in place, GIT_DIR and GIT_WORK_TREE would override -C and
+    // make git fail loudly. GIT_INDEX_FILE would fail *silently*: pointed at a
+    // missing index, git would treat tracked.log as untracked and omit it.
     let mut cmd = Command::new(EXE);
     isolate(cmd.arg(&*dir));
     let out = cmd
         .env("GIT_DIR", &bogus)
         .env("GIT_WORK_TREE", &bogus)
+        .env("GIT_INDEX_FILE", bogus.join("index"))
         .output()
         .expect("failed to run mdeezl");
     assert!(out.status.success());
     assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(
+        !in_contents(&doc, "app.log"),
+        "the scan root's rules applied"
+    );
+    assert!(
+        in_contents(&doc, "tracked.log"),
+        "the scan root's index applied"
+    );
 }
 
 // ---- T-003: pruning, end to end ----
@@ -881,10 +898,22 @@ fn test_cli_tracked_file_matching_pattern_is_bundled() {
     let dir = git_repo("gi-tracked");
     put(&dir, ".gitignore", "*.log\n");
     put(&dir, "tracked.log", "tracked body\n");
+    put(&dir, "free.log", "untracked body\n");
     git_add(&dir, &["tracked.log"]);
-    let doc = ok_iso(&dir, &[]);
+    let out = run_iso(&dir, &[]);
+    assert!(out.status.success());
+    assert!(
+        out.stderr.is_empty(),
+        "the query must run: {}",
+        stderr_of(&out)
+    );
+    let doc = stdout_of(&out);
     assert!(in_contents(&doc, "tracked.log"));
     assert!(doc.contains("tracked body"));
+    assert!(
+        !in_contents(&doc, "free.log"),
+        "control: the rule does apply"
+    );
 }
 
 #[test]
@@ -935,8 +964,9 @@ fn test_cli_include_beats_gitignore() {
 fn test_cli_include_dot_star_with_gitignore() {
     require_git!("test_cli_include_dot_star_with_gitignore");
     let dir = git_repo("gi-dotstar");
-    put(&dir, ".gitignore", ".cache/\n");
+    put(&dir, ".gitignore", ".cache/\nout/\n");
     put(&dir, ".cache/c.bin", "cached\n");
+    put(&dir, "out/a.o", "object\n");
     let out = run_iso(&dir, &["--include", ".*"]);
     assert!(out.status.success());
     assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
@@ -944,6 +974,11 @@ fn test_cli_include_dot_star_with_gitignore() {
     assert!(in_tree(&doc, ".cache"));
     assert!(in_contents(&doc, ".cache/c.bin"));
     assert!(in_tree(&doc, ".git"));
+    // Control: pruning did run, so .cache survived because of the include.
+    assert!(
+        !in_tree(&doc, "out"),
+        "a non-dot gitignored entry is still pruned"
+    );
 }
 
 #[test]
@@ -1113,10 +1148,20 @@ fn test_cli_large_repo_completes() {
 fn test_cli_gitignore_output_is_byte_identical_across_runs() {
     require_git!("test_cli_gitignore_output_is_byte_identical_across_runs");
     let dir = gitignore_fixture("gi-determinism");
-    let first = ok_iso(&dir, &[]);
-    let second = ok_iso(&dir, &[]);
-    assert!(!first.is_empty());
-    assert_eq!(first, second);
+    let first = run_iso(&dir, &[]);
+    let second = run_iso(&dir, &[]);
+    assert!(first.status.success() && second.status.success());
+    assert!(
+        first.stderr.is_empty(),
+        "the query must run: {}",
+        stderr_of(&first)
+    );
+    assert!(!first.stdout.is_empty());
+    assert!(
+        !in_contents(&stdout_of(&first), "app.log"),
+        "gitignore applied"
+    );
+    assert_eq!(first.stdout, second.stdout);
 }
 
 // ---- T-004: the README ----
@@ -1151,11 +1196,45 @@ fn test_readme_documents_gitignore() {
             "the glob-character limitation",
             "are matched only partially",
         ),
+        (
+            "the case an include cannot rescue",
+            "Include the directory instead",
+        ),
     ] {
         assert!(readme.contains(needle), "README must document {what}");
     }
     assert!(
         !readme.contains("No gitignore support yet"),
         "the sprint 0 statement must be gone"
+    );
+}
+
+/// An ordinary nested clone -- its `.git` is a directory, unlike a submodule's
+/// gitlink file. The enclosing repository's rules are the wrong rules for it,
+/// so its contents keep only the ignore list.
+#[test]
+fn test_cli_nested_repository_not_filtered() {
+    require_git!("test_cli_nested_repository_not_filtered");
+    let dir = git_repo("gi-nested-clone");
+    put(&dir, ".gitignore", "*.log\n");
+    put(&dir, "top.log", "top\n");
+    put(&dir, "inner/x.log", "inside nested clone\n");
+    git(&dir.join("inner"), &["init", "-q", "."]);
+    assert!(
+        dir.join("inner/.git").is_dir(),
+        "precondition: .git is a directory"
+    );
+
+    let out = run_iso(&dir, &[]);
+    assert!(out.status.success());
+    assert!(out.stderr.is_empty(), "stderr: {}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(
+        !in_contents(&doc, "top.log"),
+        "the enclosing rules apply outside"
+    );
+    assert!(
+        in_contents(&doc, "inner/x.log"),
+        "not inside the nested repository"
     );
 }
