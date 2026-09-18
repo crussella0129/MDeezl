@@ -1,61 +1,82 @@
 # Sprint 1 Unit Test Results
 
-- **Tested head:** `b1755d6ad6bf49ed8c09ba9eafa5ba8dc59c1976` (branch `dev`)
+- **Tested head:** `1a4fb986939feba1ffd8dadcffaa5b97d174c5d1` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
-- **Host:** Windows 11, `cargo 1.96.0` / `rustc 1.96.0`, `git 2.54.0.windows.1`
-- **Result:** 66 passed, 0 failed, 0 ignored. The 66 include the 44 sprint 0 unit tests, which ran **unedited**, and 22 new ones. Two tests self-skipped a case with a printed reason; see Platform-gated.
+- **Host:** Windows 11, `cargo 1.96.0` / `rustc 1.96.0`, `git 2.54.0.windows.1`. CI runs Rust 1.98.0 and git 2.55.0; see the test report.
+- **Result:** 68 passed, 0 failed, 0 ignored. That is the 44 sprint 0 unit tests, which ran **unedited**, plus 24 new ones. Two tests skipped one case each, printing a reason; see Platform-gated.
 - **Gates:** `cargo fmt --check` clean; `cargo clippy --all-targets -D warnings` clean; `cargo tree` reports `mdeezl v0.1.0` and nothing else.
 
 ## T-001 — off switch
 
 | Test | EARS clause verified |
 |------|----------------------|
-| `test_args_gitignore_on_by_default` | no arguments → `use_gitignore` true |
-| `test_args_no_gitignore` | `--no-gitignore` → false, every other option still at its default |
+| `test_args_gitignore_on_by_default` | no arguments → `use_gitignore` is true |
+| `test_args_no_gitignore` | `--no-gitignore` → false, with every other option still at its default |
 
 ## T-002 — the batched query
 
 | Test | EARS clause verified |
 |------|----------------------|
-| `test_nul_payload` | `./` prefix, bracket-class escaping, NUL termination. The expected backslash class is built in a different notation from the implementation, with its length asserted as 4, and the test asserts no backslash appears outside that class. |
-| `test_parse_records_maps_by_position` | one boolean per record in input order — tracked (empty fields), a match, a negation, and no match give `[false, true, false, false]`. A record count one short is `Err`, never a shifted mapping. |
-| `test_gitignore_candidates_root_repo_and_nested_repo` | the scan root holds `.git` and is still walked in full. The contents of a nested repository are not sent, and no entry is empty. |
-| `test_git_ignored_returns_ignored_set` | exactly the set git reports; `.` absent for a root that is not ignored |
-| `test_git_ignored_nothing_ignored_is_empty` | exit 1 → `Ok` holding an empty set |
-| `test_git_ignored_full_syntax` | negation, `**`, a nested `.gitignore`, `.git/info/exclude`, and repo-local `core.excludesFile`, at T-002's own boundary |
-| `test_git_ignored_subdir_root` | root-level rules apply when the scan root is a subdirectory |
-| `test_git_ignored_reports_root_only_when_ignored` | `.` reported for an ignored root holding only untracked files, and **not** for one holding a tracked file |
-| `test_git_ignored_glob_chars_are_literal` | a bracketed untracked name is reported. The Windows-sensitive tracked `x[1].log` and the unrelated `out[1].txt` are **not**, and neither is the tracked `pages/[id].tsx`. |
-| `test_git_ignored_submodule_candidates_do_not_abort` | a real submodule (committed source, `protocol.file.allow=always`) does not abort the query |
-| `test_git_ignored_outside_work_tree_errs` | `Err` naming the repository problem |
-| `test_git_ignored_tracked_file_not_reported` | a staged file matching `*.log` is not reported; an untracked one beside it is |
-| `test_git_ignored_large_list_no_deadlock` | 20,000 synthetic paths of about 60 bytes — over 1.2 MiB each way — all returned under a 60 s `recv_timeout`. The whole unit suite ran in about 1.6 s. |
-| `test_git_ignored_large_list_outside_work_tree_errs_without_panic` | the same list against a plain directory: git exits during setup, the writer meets a broken pipe, and the result is `Err`, not a panic |
-| `test_run_spawns_git_exactly_once` | the `#[cfg(test)]` spawn counter reads exactly 1 after a full `run` over a repository with nested directories |
+| `test_nul_payload` | Checks the `./` prefix, bracket-class escaping, and NUL termination. The expected backslash class is written in a different notation from the implementation, with its length asserted as 4. The test also asserts that no backslash appears outside that class. |
+| `test_parse_records_maps_by_position` | Four records — tracked (empty fields), match, negation, no match — map to `[false, true, false, false]`. A record count one short is `Err`, never a shifted mapping. |
+| `test_gitignore_candidates_root_repo_and_nested_repo` | The scan root holds `.git` and is still walked in full. Neither a nested repository's contents are sent — whether its `.git` is a gitlink **file** or a **directory**, as in an ordinary clone — nor any empty entry. |
+| `test_git_ignored_returns_ignored_set` | Returns exactly the set git reports, with no `.` for a root that is not ignored. |
+| `test_git_ignored_nothing_ignored_is_empty` | Git exits 1 → `Ok` holding an empty set. |
+| `test_git_ignored_full_syntax` | Negation, `**`, a nested `.gitignore`, `.git/info/exclude`, and repo-local `core.excludesFile`, all checked at T-002's own boundary. |
+| `test_git_ignored_subdir_root` | Root-level rules still apply when the scan root is a subdirectory. |
+| `test_git_ignored_reports_root_only_when_ignored` | `.` is reported for an ignored root holding only untracked files, and **not** for one holding a tracked file. |
+| `test_git_ignored_glob_chars_are_literal` | A bracketed untracked name is reported. Not reported: the Windows-sensitive tracked `x[1].log`, the unrelated `out[1].txt`, and the tracked `pages/[id].tsx`. |
+| `test_git_ignored_whitelist_reports_escaped_directory` | Under `*` / `!*/` / `!*.tsx`, git reports `app/[slug]` while its tracked `page.tsx` is not reported. That is **the directory-removal guard's precondition**, pinned against whichever git runs the tests. Planning measured it on git 2.54; CI runs 2.55. |
+| `test_git_ignored_submodule_candidates_do_not_abort` | A real submodule (committed source, `protocol.file.allow=always`) does not abort the query. |
+| `test_git_ignored_outside_work_tree_errs` | `Err`, naming the repository problem. |
+| `test_git_ignored_tracked_file_not_reported` | A staged file matching `*.log` is not reported; an untracked one beside it is. |
+| `test_git_ignored_large_list_no_deadlock` | 20,000 synthetic paths of **60 bytes each** (asserted). The inbound payload is asserted to exceed **1.2 MB**. Outbound is larger still, because each record repeats the path beside its matching rule. All paths return under a 60 s `recv_timeout`. |
+| `test_git_ignored_large_list_outside_work_tree_errs_without_panic` | The same list against a plain directory: git exits during setup, the writer meets a broken pipe, and the result is `Err`, not a panic. |
+| `test_git_local_env_vars_cover_gits_list` | Every variable `git rev-parse --local-env-vars` lists on the running git appears in the removal list. A git that adds one will fail here, instead of letting it silently redirect the query. |
+| `test_run_spawns_git_exactly_once` | The `#[cfg(test)]` spawn counter reads exactly 1 after a full `run`. The test **also reads the document** that run wrote: the gitignored `b.log` is absent and the nested `src/d/e.rs` is present. The count alone would pass even if the query had failed, because `run` returns `Ok` then. |
 
 ## T-003 — pruning
 
-The shared fixture uses the ignored set git actually returns — every descendant of an ignored directory listed — rather than a set containing only the directory. The plan critique found the latter had hidden a real defect.
+The shared fixture uses the ignored set git actually returns, with every descendant of an ignored directory listed, rather than just the directory.
 
 | Test | EARS clause verified |
 |------|----------------------|
-| `test_prune_gitignored_removes_subtree` | each ignored directory goes with its subtree in one step |
-| `test_prune_gitignored_include_exempts_subtree` | all four pattern forms: a name keeps `out/` whole; `*.o` keeps the top-level and `src/` object files while `out/` still goes; a path keeps one file; `.*` keeps `.cache/` whole |
-| `test_prune_gitignored_include_of_unignored_dir_gives_no_exemption` | including `src`, which git does not ignore, leaves `src/gen.o` pruned |
-| `test_prune_gitignored_ancestor_blocks_include` | an included file under a pruned ancestor is still pruned |
-| `test_prune_gitignored_guard_keeps_unreported_descendant` | the reported `app/[slug]` is kept because its tracked `page.tsx` was not reported; `notes.md` goes; `nested/` goes because its child was never queried |
+| `test_prune_gitignored_removes_subtree` | Each ignored directory goes with its subtree in one step. |
+| `test_prune_gitignored_include_exempts_subtree` | Covers all four pattern forms. A name keeps `out/` whole. `*.o` keeps the top-level and `src/` object files, but `out/` still goes. A path keeps one file. `.*` keeps `.cache/` whole. |
+| `test_prune_gitignored_include_of_unignored_dir_gives_no_exemption` | Including `src`, which git does not ignore, still leaves `src/gen.o` pruned. |
+| `test_prune_gitignored_ancestor_blocks_include` | An included file under a pruned ancestor is still pruned. |
+| `test_prune_gitignored_guard_keeps_unreported_descendant` | The reported `app/[slug]` is kept, because its tracked `page.tsx` was not reported. `notes.md` goes. `nested/` goes too, because its child was never queried. |
+
+## Mutation check
+
+The test critique found several assertions that could not fail. After tightening them, two regressions the critique named were introduced into the implementation deliberately, one at a time. The source was restored byte-identical after each, and each was caught:
+
+| Mutation | Unit test | End-to-end test |
+|----------|-----------|-----------------|
+| `.git` detection regresses from `.exists()` to `.is_file()` | `test_gitignore_candidates_root_repo_and_nested_repo` **failed** | `test_cli_nested_repository_not_filtered` **failed** |
+| `GIT_INDEX_FILE` dropped from the removal list | `test_git_local_env_vars_cover_gits_list` **failed** | `test_cli_ignores_ambient_git_environment` **failed**, at "the scan root's index applied" — the silent failure, where a tracked file is dropped with nothing on stderr |
+
+The end-to-end results were run with `--no-fail-fast`. A plain `cargo test` stops after the first failing test binary, so without that flag the end-to-end tests would never have run.
 
 ## Platform-gated
 
-Two cases printed a SKIP on this Windows host. The Linux CI leg is authoritative for both; the test report records the run.
+Two tests skipped one case each on this Windows host, printing a SKIP. The Linux CI leg is the authoritative run for both, and the test report records it.
 
 - **`test_unreadable_dir_marked_and_walk_continues`** (sprint 0): Windows' `set_permissions` cannot block `read_dir`.
-- **The backslash case of `test_git_ignored_glob_chars_are_literal`**: Windows forbids `\` in filenames. This case is the only git-level check of the four-byte `[\\]` class. Every other case in the same test ran and passed here.
+- **The backslash case of `test_git_ignored_glob_chars_are_literal`:** Windows forbids `\` in filenames. This case is the only git-level check of the four-byte `[\\]` class.
 
-## Isolation limit of the in-process tests
+## Isolation
 
-The T-002 unit tests call `git_ignored` in-process, so they cannot isolate git from the host's global configuration. Doing that would need `std::env::set_var`, which is `unsafe` in edition 2024 and races with parallel tests.
+The in-process T-002 tests are isolated too. A `#[cfg(test)]` block in `git_ignored` sets these on the git **child**:
 
-Setting `GIT_CONFIG_GLOBAL` would not have been enough in any case. Git's default excludes file is `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` does not disable it.
+- `GIT_CONFIG_NOSYSTEM`
+- `GIT_CONFIG_GLOBAL` (pointing at an empty file)
+- `XDG_CONFIG_HOME`
+- `GIT_CEILING_DIRECTORIES`
 
-This host has such a file. It names only `.claude/settings.local.json`, so it cannot affect any fixture name. The end-to-end harness *is* fully isolated: it sets `XDG_CONFIG_HOME` as well as `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_NOSYSTEM`. That goes beyond the locked plan's isolation list and was added because of this finding.
+These match what the end-to-end harness sets. No process-wide `set_var` is needed.
+
+An earlier version of this record claimed the in-process tests *could not* be isolated without `set_var`. That was wrong; the critique pointed out the child-command approach. Two details matter:
+
+- **`XDG_CONFIG_HOME` is necessary.** Git's default excludes file is `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` alone does not disable it. This host has such a file.
+- **`GIT_CEILING_DIRECTORIES` is necessary.** Without it, the two outside-a-work-tree tests would fail on any machine whose temp directory sits inside a repository.

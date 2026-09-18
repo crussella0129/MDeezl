@@ -1,6 +1,6 @@
 # Sprint 1 Integration Test Results
 
-- **Tested head:** `b1755d6ad6bf49ed8c09ba9eafa5ba8dc59c1976` (branch `dev`)
+- **Tested head:** `1a4fb986939feba1ffd8dadcffaa5b97d174c5d1` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Result:** passed. Both compositions below run on every push, on both CI runners.
 
@@ -14,7 +14,7 @@
 - pruning;
 - rendering.
 
-A `#[cfg(test)]` thread-local counter then confirms that the whole run spawned git exactly once. This is the direct measurement of INT-0004's one-subprocess criterion. Sprint 1's plan critique rejected the earlier idea of inferring it from a timing bound.
+A `#[cfg(test)]` thread-local counter then confirms that the whole run spawned git exactly once, and the test reads the document the run wrote: the gitignored `b.log` is absent and the nested `src/d/e.rs` is present. An earlier version asserted only the count, which would also pass had the query failed, since `run` returns `Ok` then; the test critique caught that the document was overclaiming. This is the direct measurement of INT-0004's one-subprocess criterion. Sprint 1's plan critique rejected the earlier idea of inferring it from a timing bound.
 
 ## Pruning composed with both renderers, end to end
 
