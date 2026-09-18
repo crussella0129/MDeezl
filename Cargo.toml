@@ -1,0 +1,19 @@
+# Stops Cargo searching parent directories for a workspace manifest, which
+# otherwise picks up unrelated Cargo.toml files above the repository.
+[workspace]
+
+[package]
+name = "mdeezl"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Feed any repository to text-only agents: one Markdown document with a scaffold tree and every file's contents."
+repository = "https://github.com/crussella0129/MDeezl"
+
+[[bin]]
+name = "mdeezl"
+path = "src/main.rs"
+
+# MDeezl is standard-library only, by design. See INT-0001: the binary must
+# build with this table empty, and the test suite adds nothing to it either.
+[dependencies]
