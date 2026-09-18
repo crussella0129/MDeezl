@@ -3,11 +3,11 @@
 - **Sprint number:** 1
 - **Book schema version:** 2
 - **Start timestamp:** 2026-09-18T03:35:37Z
-- **End timestamp:** (filled at Loop Phase)
+- **End timestamp:** 2026-09-18T09:09:04Z
 - **Model:** claude-opus-5
 - **Bundle version:** 0.22.0
-- **Exit status:** in-progress
+- **Exit status:** success
 - **Token count:** (filled at Loop Phase if observable)
 - **Summary:** Honour the repository's own `.gitignore` by delegating to a single batched `git check-ignore` process, dependency-free, degrading gracefully when git or a work tree is absent.
 - **Intents:** [INT-0004](../../intents/INT-0004-gitignore-aware-exclusion.md) (planned, advanced by this sprint); [INT-0001](../../intents/INT-0001-markdown-repo-context-bundle.md) (realized, constrained — must not regress); [INT-0002](../../intents/INT-0002-git-and-remote-sources.md) (proposed, boundary only).
-- **Completion evidence:** (filled at Loop Phase)
+- **Completion evidence:** 119 tests pass at 0ff9f2a locally and on both CI legs (run 35327617895, git 2.55.0) with fmt/clippy/zero-dependency gates clean; all 18 INT-0004 criteria proved, INT-0004 realized
