@@ -4,11 +4,12 @@
 //! then the contents of every included file. Standard library only; see
 //! `docs/intents/INT-0001-markdown-repo-context-bundle.md`.
 
+use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
-use std::process;
+use std::process::{self, Command, Stdio};
 
 /// Pre-populated ignore list. `.*` covers `.git`, `.venv`, and every other
 /// dot-entry; `--include` cancels any of these.
@@ -34,6 +35,7 @@ OPTIONS:
         --wrap MODE       fence (default) | inline | none
         --exclude PATTERN add PATTERN to the ignore list (repeatable)
         --include PATTERN keep entries matching PATTERN even if ignored (repeatable)
+        --no-gitignore    do not apply the repository's .gitignore rules
     -h, --help            print this help
 
 WRAP MODES:
@@ -43,10 +45,20 @@ WRAP MODES:
             cannot be inline, so bodies are still fenced in this mode.
     none    no fences and no backticks anywhere
 
-IGNORE LIST:
-    Pre-populated with: .* target node_modules dist build __pycache__
-    An entry is omitted when it matches an ignore pattern and matches no
-    include pattern -- include always wins.
+WHAT IS OMITTED:
+    Entries are omitted from two sources, and --include outranks both.
+
+    1. The ignore list, pre-populated with:
+           .* target node_modules dist build __pycache__
+       An entry is omitted when it matches an ignore pattern and matches no
+       include pattern -- include always wins.
+
+    2. The repository's own .gitignore rules, applied by asking git itself, so
+       the full gitignore syntax works. Files the repository tracks are kept
+       even when a rule matches them. This needs git on your PATH, and the
+       scanned directory must be inside a git work tree; otherwise mdeezl says
+       so on stderr and uses the ignore list alone. Turn it off with
+       --no-gitignore.
 
 PATTERN FORMS:
     .*            any name beginning with a dot (hidden entries, including .git)
@@ -78,6 +90,8 @@ struct Options {
     wrap: Wrap,
     ignore: Vec<String>,
     include: Vec<String>,
+    /// Apply the repository's own `.gitignore` rules. See INT-0004.
+    use_gitignore: bool,
 }
 
 impl Default for Options {
@@ -88,6 +102,7 @@ impl Default for Options {
             wrap: Wrap::Fence,
             ignore: DEFAULT_IGNORES.iter().map(|s| s.to_string()).collect(),
             include: Vec::new(),
+            use_gitignore: true,
         }
     }
 }
@@ -128,6 +143,7 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String>
             }
             "--exclude" => opts.ignore.push(value("--exclude")?),
             "--include" => opts.include.push(value("--include")?),
+            "--no-gitignore" => opts.use_gitignore = false,
             other if root_seen => {
                 return Err(format!("unexpected second path `{other}`"));
             }
@@ -416,11 +432,231 @@ fn render_document(root: &Node, opts: &Options) -> String {
     )
 }
 
+// ---- The repository's own .gitignore, by asking git. See INT-0004. ----
+
+/// Every variable `git rev-parse --local-env-vars` lists (git 2.54). Removed
+/// from git's environment so an ambient repository -- as when mdeezl runs from
+/// inside a git hook -- cannot redirect the query away from the scan root.
+/// Hard-coded rather than queried, because querying would cost a second process.
+const GIT_LOCAL_ENV_VARS: [&str; 15] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
+
+#[cfg(test)]
+thread_local! {
+    /// Counts git spawns, so "one subprocess per run" is measured, not inferred.
+    static GIT_SPAWNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Each path `./`-prefixed, so a leading `:` is not read as pathspec magic, and
+/// NUL-terminated. Glob characters are wrapped in bracket classes so git's
+/// tracked-file lookup treats the name literally. Never backslash escaping: Git
+/// for Windows turns `\` into `/`, which reported tracked files as ignored.
+fn nul_payload(paths: &[String]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for path in paths {
+        out.extend_from_slice(b"./");
+        for &b in path.as_bytes() {
+            match b {
+                b'[' => out.extend_from_slice(b"[[]"),
+                b'*' => out.extend_from_slice(b"[*]"),
+                b'?' => out.extend_from_slice(b"[?]"),
+                b'\\' => out.extend_from_slice(br"[\\]"),
+                _ => out.push(b),
+            }
+        }
+        out.push(0);
+    }
+    out
+}
+
+/// `check-ignore -z -v -n` emits exactly one four-field record per input, in
+/// input order: source, line, pattern, path. Results are mapped by position,
+/// never by parsing git's echo of the path, which is inconsistent for escaped
+/// names. A path is ignored when some rule matched and it was not a negation.
+fn parse_records(out: &[u8], n: usize) -> Result<Vec<bool>, String> {
+    let body = out.strip_suffix(b"\0").unwrap_or(out);
+    let fields: Vec<&[u8]> = if body.is_empty() {
+        Vec::new()
+    } else {
+        body.split(|&b| b == 0).collect()
+    };
+    if fields.len() != n * 4 {
+        return Err(format!(
+            "git check-ignore returned {} fields for {n} paths",
+            fields.len()
+        ));
+    }
+    Ok(fields
+        .chunks(4)
+        .map(|r| !r[0].is_empty() && !r[2].starts_with(b"!"))
+        .collect())
+}
+
+/// `.` for the scan root -- an empty entry aborts the whole query, and git
+/// reports `.` exactly when it considers the root itself ignored -- then every
+/// entry's path, skipping what lies inside a nested repository or submodule. A
+/// path inside a submodule aborts the query, and a nested repository's rules
+/// are not the enclosing one's. The scan root itself is not "nested".
+fn gitignore_candidates(root: &Path, tree: &Node) -> Vec<String> {
+    fn visit(root: &Path, node: &Node, out: &mut Vec<String>) {
+        for child in &node.children {
+            out.push(child.rel.clone());
+            if child.kind == Kind::Dir && !root.join(&child.rel).join(".git").exists() {
+                visit(root, child, out);
+            }
+        }
+    }
+    let mut out = vec![".".to_string()];
+    visit(root, tree, &mut out);
+    out
+}
+
+/// Ask git, once, which of `paths` the repository ignores. `Err` carries the
+/// reason, for the degradation notice.
+fn git_ignored(root: &Path, paths: &[String]) -> Result<HashSet<String>, String> {
+    #[cfg(test)]
+    GIT_SPAWNS.with(|n| n.set(n.get() + 1));
+
+    let mut cmd = Command::new("git");
+    cmd.arg("-C")
+        .arg(root)
+        .args(["check-ignore", "-z", "-v", "-n", "--stdin"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    for var in GIT_LOCAL_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    // Under test, isolate git from the host's configuration and from any
+    // repository above the temp directory, as the end-to-end harness does. Set
+    // on the child, so no process-wide `set_var` is needed.
+    #[cfg(test)]
+    {
+        let iso = env::temp_dir().join(format!("mdeezl-gitiso-{}", process::id()));
+        let _ = fs::create_dir_all(&iso);
+        let _ = fs::write(iso.join("gitconfig"), "");
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
+            .env("XDG_CONFIG_HOME", &iso)
+            .env("GIT_CEILING_DIRECTORIES", env::temp_dir());
+    }
+    let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        io::ErrorKind::NotFound => "git was not found on PATH".to_string(),
+        _ => format!("could not run git: {e}"),
+    })?;
+
+    // Write from another thread. A large list fills the pipe, and git stops
+    // reading its stdin while its own stdout is full and unread; writing and
+    // reading on one thread would deadlock. Write errors are ignored -- git exits
+    // before reading stdin outside a work tree -- so its exit status decides.
+    let mut stdin = child.stdin.take().expect("stdin is piped");
+    let payload = nul_payload(paths);
+    let writer = std::thread::spawn(move || {
+        let _ = stdin.write_all(&payload);
+    });
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("git check-ignore failed: {e}"))?;
+    let _ = writer.join();
+
+    match output.status.code() {
+        Some(0) | Some(1) => {
+            let marks = parse_records(&output.stdout, paths.len())?;
+            Ok(paths
+                .iter()
+                .zip(marks)
+                .filter(|(_, ignored)| *ignored)
+                .map(|(p, _)| p.clone())
+                .collect())
+        }
+        _ => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            match stderr.lines().next().map(str::trim) {
+                Some(line) if !line.is_empty() => Err(line.to_string()),
+                _ => Err(format!("git check-ignore exited with {}", output.status)),
+            }
+        }
+    }
+}
+
+/// Does any entry git was asked about, beneath `node`, come back not ignored?
+/// Entries never queried -- inside a nested repository -- do not count.
+fn has_unreported_descendant(
+    node: &Node,
+    ignored: &HashSet<String>,
+    queried: &HashSet<String>,
+) -> bool {
+    node.children.iter().any(|c| {
+        (queried.contains(&c.rel) && !ignored.contains(&c.rel))
+            || (c.kind == Kind::Dir && has_unreported_descendant(c, ignored, queried))
+    })
+}
+
+/// Remove what git reports ignored, top-down, so a pruned directory takes its
+/// subtree -- and any include-matching entry inside it -- with it.
+/// - An entry git ignores that matches `--include` is kept, and so is its whole
+///   subtree: git reports every descendant of an ignored directory, so judging
+///   them one by one would restore an empty directory.
+/// - An included entry git does not ignore gets no such exemption.
+/// - A reported directory holding something git did not report is kept and its
+///   children judged individually. For ordinary names git never reports a
+///   directory holding tracked files; this catches the escaped names (such as
+///   `app/[slug]`) where it can, so a tracked file is never dropped.
+fn prune_gitignored(
+    node: &mut Node,
+    ignored: &HashSet<String>,
+    queried: &HashSet<String>,
+    include: &[String],
+) {
+    node.children.retain_mut(|child| {
+        if ignored.contains(&child.rel) {
+            if include.iter().any(|p| matches(p, &child.name, &child.rel)) {
+                return true;
+            }
+            if child.kind != Kind::Dir || !has_unreported_descendant(child, ignored, queried) {
+                return false;
+            }
+        }
+        if child.kind == Kind::Dir {
+            prune_gitignored(child, ignored, queried, include);
+        }
+        true
+    });
+}
+
 /// Render the whole document before opening the sink, so a failure can never
 /// leave a partial document on stdout. INT-0001 records the peak-memory cost
 /// this accepts.
 fn run(opts: &Options) -> io::Result<()> {
-    let root = walk(opts)?;
+    let mut root = walk(opts)?;
+    if opts.use_gitignore {
+        let candidates = gitignore_candidates(&opts.root, &root);
+        match git_ignored(&opts.root, &candidates) {
+            Ok(ignored) if ignored.contains(".") => eprintln!(
+                "mdeezl: gitignore filtering skipped: the scanned directory is itself ignored by the repository"
+            ),
+            Ok(ignored) => {
+                let queried: HashSet<String> = candidates.into_iter().collect();
+                prune_gitignored(&mut root, &ignored, &queried, &opts.include);
+            }
+            Err(reason) => eprintln!("mdeezl: gitignore filtering skipped: {reason}"),
+        }
+    }
     let document = render_document(&root, opts);
 
     let mut sink: Box<dyn Write> = match &opts.sink {
@@ -532,6 +768,26 @@ mod tests {
     #[test]
     fn test_args_rejects_second_positional() {
         assert!(err(&["a", "b"]).contains('b'));
+    }
+
+    // ---- Sprint 1 / T-001: gitignore off switch ----
+
+    #[test]
+    fn test_args_gitignore_on_by_default() {
+        assert!(run_opts(&[]).use_gitignore);
+    }
+
+    #[test]
+    fn test_args_no_gitignore() {
+        let o = run_opts(&["--no-gitignore"]);
+        assert!(!o.use_gitignore);
+        // Every other option keeps its default.
+        let d = Options::default();
+        assert_eq!(o.root, d.root);
+        assert_eq!(o.sink, d.sink);
+        assert_eq!(o.wrap, d.wrap);
+        assert_eq!(o.ignore, d.ignore);
+        assert_eq!(o.include, d.include);
     }
 
     #[test]
@@ -1064,6 +1320,718 @@ mod tests {
         assert!(doc.contains("├── .github/") || doc.contains("└── .github/"));
         assert!(doc.contains("File: .github/ci.yml"));
         assert!(doc.contains("on: push"));
+    }
+
+    // ---- Sprint 1 / T-002: the batched gitignore query ----
+
+    fn git_available() -> bool {
+        Command::new("git")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    /// Run git for fixture setup, isolated from the host's git configuration
+    /// and from any ambient repository.
+    fn git(dir: &Path, args: &[&str]) {
+        let iso = env::temp_dir().join(format!("mdeezl-gitiso-{}", process::id()));
+        fs::create_dir_all(&iso).unwrap();
+        let _ = fs::write(iso.join("gitconfig"), "");
+        let mut cmd = Command::new("git");
+        cmd.current_dir(dir)
+            .args(args)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
+            .env("XDG_CONFIG_HOME", &iso)
+            .env("GIT_CEILING_DIRECTORIES", env::temp_dir());
+        for var in GIT_LOCAL_ENV_VARS {
+            cmd.env_remove(var);
+        }
+        let out = cmd.output().unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// Stage without committing: a staged file already counts as tracked, and
+    /// committing would need an identity CI runners do not have. Literal
+    /// pathspecs, so `x[1].log` is not read as a glob.
+    fn git_add(dir: &Path, paths: &[&str]) {
+        let mut args = vec!["--literal-pathspecs", "add", "-f", "--"];
+        args.extend_from_slice(paths);
+        git(dir, &args);
+    }
+
+    fn init_repo(tag: &str) -> Tmp {
+        let dir = tmp_dir(tag);
+        git(&dir, &["init", "-q", "."]);
+        dir
+    }
+
+    fn touch(dir: &Path, rel: &str) {
+        let p = dir.join(rel);
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(p, "x\n").unwrap();
+    }
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    macro_rules! require_git {
+        ($name:literal) => {
+            if !git_available() {
+                eprintln!(concat!("SKIP ", $name, ": git not on PATH"));
+                return;
+            }
+        };
+    }
+
+    #[test]
+    fn test_nul_payload() {
+        let got = nul_payload(&strings(&["a", "b/c", ":x", r"p*[1]?\z"]));
+        // Built from explicit byte values, so the backslash class cannot share a
+        // transcription slip with the implementation's literal.
+        let mut want = Vec::new();
+        for p in [&b"./a"[..], b"./b/c", b"./:x"] {
+            want.extend_from_slice(p);
+            want.push(0);
+        }
+        want.extend_from_slice(b"./p[*][[]1][?]");
+        // Non-raw notation, unlike the implementation's raw literal, and its
+        // length pinned: `[`, `\`, `\`, `]`.
+        let backslash_class: &[u8] = b"[\\\\]";
+        assert_eq!(backslash_class.len(), 4);
+        want.extend_from_slice(backslash_class);
+        want.extend_from_slice(b"z\0");
+        assert_eq!(got, want);
+
+        // No backslash outside the four-byte class: that is what keeps the
+        // payload safe on Git for Windows, which turns a bare `\` into `/`.
+        let stripped: Vec<u8> = got
+            .split(|&b| b == 0)
+            .flat_map(|f| {
+                let mut v = f.to_vec();
+                while let Some(i) = v.windows(4).position(|w| w == backslash_class) {
+                    v.drain(i..i + 4);
+                }
+                v
+            })
+            .collect();
+        assert!(!stripped.contains(&b'\\'));
+    }
+
+    #[test]
+    fn test_parse_records_maps_by_position() {
+        fn rec(src: &str, line: &str, pat: &str, path: &str) -> Vec<u8> {
+            [src, line, pat, path]
+                .iter()
+                .flat_map(|f| f.bytes().chain([0]))
+                .collect()
+        }
+        let out: Vec<u8> = [
+            rec("", "", "", "./tracked.log"),
+            rec(".gitignore", "1", "*.log", "./a.log"),
+            rec(".gitignore", "2", "!keep.log", "./keep.log"),
+            rec("", "", "", "./x.txt"),
+        ]
+        .concat();
+        assert_eq!(parse_records(&out, 4), Ok(vec![false, true, false, false]));
+        // One record short must be an error, never a shifted mapping.
+        let short: Vec<u8> = out[..out.len() - rec("", "", "", "./x.txt").len()].to_vec();
+        assert!(parse_records(&short, 4).is_err());
+    }
+
+    #[test]
+    fn test_gitignore_candidates_root_repo_and_nested_repo() {
+        let dir = tmp_dir("candidates");
+        fs::create_dir(dir.join(".git")).unwrap(); // the scan root is a repository
+        touch(&dir, "a.txt");
+        touch(&dir, "sub/b.txt");
+        touch(&dir, "nested/.git"); // a nested repository's gitlink file
+        touch(&dir, "nested/c.txt");
+        // An ordinary nested clone: its `.git` is a directory, not a gitlink
+        // file. Both forms must stop the walk, or `.exists()` could regress to
+        // `.is_file()` unnoticed.
+        fs::create_dir_all(dir.join("clone/.git")).unwrap();
+        touch(&dir, "clone/d.txt");
+
+        let tree = walk(&opts_for(&dir, &[".*"], &[])).unwrap();
+        let got = gitignore_candidates(&dir, &tree);
+
+        for want in [".", "a.txt", "sub", "sub/b.txt", "nested", "clone"] {
+            assert!(got.contains(&want.to_string()), "missing {want}: {got:?}");
+        }
+        assert!(!got.contains(&"nested/c.txt".to_string()));
+        assert!(!got.contains(&"clone/d.txt".to_string()));
+        assert!(!got.iter().any(String::is_empty));
+    }
+
+    /// The directory-removal guard's precondition, pinned against whatever git
+    /// the tests run on. Planning measured it on git 2.54; CI runs a newer git.
+    /// If a git ever stopped reporting the escaped directory, the end-to-end
+    /// guard test would still pass without exercising the guard -- this fails.
+    #[test]
+    fn test_git_ignored_whitelist_reports_escaped_directory() {
+        require_git!("test_git_ignored_whitelist_reports_escaped_directory");
+        let dir = init_repo("gi-whitelist");
+        fs::write(dir.join(".gitignore"), "*\n!*/\n!*.tsx\n!.gitignore\n").unwrap();
+        touch(&dir, "app/[slug]/page.tsx");
+        touch(&dir, "app/[slug]/notes.md");
+        git_add(&dir, &["app/[slug]/page.tsx"]);
+        let got = git_ignored(
+            &dir,
+            &strings(&[
+                ".",
+                "app",
+                "app/[slug]",
+                "app/[slug]/page.tsx",
+                "app/[slug]/notes.md",
+            ]),
+        )
+        .unwrap();
+        assert!(
+            got.contains("app/[slug]"),
+            "precondition for the guard: {got:?}"
+        );
+        assert!(!got.contains("app/[slug]/page.tsx"));
+        assert!(got.contains("app/[slug]/notes.md"));
+    }
+
+    /// Every variable git lists as repository-local must be removed from the
+    /// query's environment. A git that adds one should fail this, not silently
+    /// let it redirect the query.
+    #[test]
+    fn test_git_local_env_vars_cover_gits_list() {
+        require_git!("test_git_local_env_vars_cover_gits_list");
+        let out = Command::new("git")
+            .args(["rev-parse", "--local-env-vars"])
+            .output()
+            .unwrap();
+        assert!(out.status.success());
+        let listed = String::from_utf8_lossy(&out.stdout);
+        // Guard against a vacuous pass on empty output.
+        for known in ["GIT_DIR", "GIT_INDEX_FILE"] {
+            assert!(
+                listed.lines().any(|l| l.trim() == known),
+                "git's list should include {known}: {listed:?}"
+            );
+        }
+        for var in listed.lines() {
+            assert!(
+                GIT_LOCAL_ENV_VARS.contains(&var.trim()),
+                "git lists {var} as repository-local, but mdeezl does not remove it"
+            );
+        }
+    }
+
+    #[test]
+    fn test_git_ignored_returns_ignored_set() {
+        require_git!("test_git_ignored_returns_ignored_set");
+        let dir = init_repo("gi-set");
+        fs::write(dir.join(".gitignore"), "out/\n*.log\n").unwrap();
+        touch(&dir, "out/a.o");
+        touch(&dir, "app.log");
+        touch(&dir, "keep.txt");
+        let got = git_ignored(
+            &dir,
+            &strings(&[".", "out", "out/a.o", "app.log", "keep.txt"]),
+        );
+        assert_eq!(got, Ok(set(&["out", "out/a.o", "app.log"])));
+    }
+
+    #[test]
+    fn test_git_ignored_nothing_ignored_is_empty() {
+        require_git!("test_git_ignored_nothing_ignored_is_empty");
+        let dir = init_repo("gi-none");
+        touch(&dir, "a.txt");
+        assert_eq!(git_ignored(&dir, &strings(&[".", "a.txt"])), Ok(set(&[])));
+    }
+
+    #[test]
+    fn test_git_ignored_full_syntax() {
+        require_git!("test_git_ignored_full_syntax");
+        let dir = init_repo("gi-syntax");
+        fs::write(dir.join(".gitignore"), "*.log\n!keep.log\n**/generated/\n").unwrap();
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        fs::write(dir.join("sub/.gitignore"), "local.tmp\n").unwrap();
+        let exclude = dir.join(".git/info/exclude");
+        let mut ex = fs::read_to_string(&exclude).unwrap_or_default();
+        ex.push_str("excluded.txt\n");
+        fs::write(&exclude, ex).unwrap();
+        fs::write(dir.join("globalish"), "viaconfig.txt\n").unwrap();
+        // Forward slashes: a Windows backslash path in .git/config is read as
+        // escape sequences.
+        let excludes_file = dir.join("globalish").to_string_lossy().replace('\\', "/");
+        git(&dir, &["config", "core.excludesFile", &excludes_file]);
+        for f in [
+            "app.log",
+            "keep.log",
+            "deep/x/generated/g.txt",
+            "sub/local.tmp",
+            "sub/other.tmp",
+            "excluded.txt",
+            "viaconfig.txt",
+            "plain.txt",
+        ] {
+            touch(&dir, f);
+        }
+        let got = git_ignored(
+            &dir,
+            &strings(&[
+                ".",
+                "app.log",
+                "keep.log",
+                "deep",
+                "deep/x",
+                "deep/x/generated",
+                "deep/x/generated/g.txt",
+                "sub",
+                "sub/local.tmp",
+                "sub/other.tmp",
+                "excluded.txt",
+                "viaconfig.txt",
+                "plain.txt",
+            ]),
+        );
+        assert_eq!(
+            got,
+            Ok(set(&[
+                "app.log",
+                "deep/x/generated",
+                "deep/x/generated/g.txt",
+                "sub/local.tmp",
+                "excluded.txt",
+                "viaconfig.txt",
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_git_ignored_subdir_root() {
+        require_git!("test_git_ignored_subdir_root");
+        let dir = init_repo("gi-subdir");
+        fs::write(dir.join(".gitignore"), "*.log\n").unwrap();
+        touch(&dir, "sub/x.log");
+        touch(&dir, "sub/keep.txt");
+        let got = git_ignored(&dir.join("sub"), &strings(&[".", "x.log", "keep.txt"]));
+        assert_eq!(got, Ok(set(&["x.log"])));
+    }
+
+    #[test]
+    fn test_git_ignored_reports_root_only_when_ignored() {
+        require_git!("test_git_ignored_reports_root_only_when_ignored");
+        let dir = init_repo("gi-rootdot");
+        fs::write(dir.join(".gitignore"), "out/\n").unwrap();
+        touch(&dir, "out/a.o");
+        let out = dir.join("out");
+
+        let untracked_only = git_ignored(&out, &strings(&[".", "a.o"])).unwrap();
+        assert!(
+            untracked_only.contains("."),
+            "root holding only untracked files is ignored"
+        );
+        assert!(untracked_only.contains("a.o"));
+
+        touch(&dir, "out/keep.txt");
+        git_add(&dir, &["out/keep.txt"]);
+        let with_tracked = git_ignored(&out, &strings(&[".", "a.o", "keep.txt"])).unwrap();
+        assert!(
+            !with_tracked.contains("."),
+            "a root holding tracked files is not reported"
+        );
+        assert!(with_tracked.contains("a.o"));
+        assert!(!with_tracked.contains("keep.txt"));
+    }
+
+    #[test]
+    fn test_git_ignored_glob_chars_are_literal() {
+        require_git!("test_git_ignored_glob_chars_are_literal");
+        let dir = init_repo("gi-glob");
+        fs::write(dir.join(".gitignore"), "*.log\nout/\n").unwrap();
+        for f in [
+            "a1.log",
+            "a[1].log",
+            "x[1].log",
+            "out[1].txt",
+            "out/z.o",
+            "pages/[id].tsx",
+        ] {
+            touch(&dir, f);
+        }
+        git_add(&dir, &["a1.log", "x[1].log", "pages/[id].tsx"]);
+        let got = git_ignored(
+            &dir,
+            &strings(&[
+                ".",
+                "a1.log",
+                "a[1].log",
+                "x[1].log",
+                "out",
+                "out[1].txt",
+                "pages",
+                "pages/[id].tsx",
+            ]),
+        )
+        .unwrap();
+        // Unescaped, a[1].log's glob would hit the tracked a1.log and be suppressed.
+        assert!(got.contains("a[1].log"));
+        assert!(!got.contains("a1.log"));
+        // Windows-sensitive: backslash escaping reads these as x/[1].log and out/[1].txt.
+        assert!(
+            !got.contains("x[1].log"),
+            "a tracked file must not be reported"
+        );
+        assert!(!got.contains("out[1].txt"), "no rule names out[1].txt");
+        assert!(!got.contains("pages/[id].tsx"));
+
+        #[cfg(unix)]
+        {
+            // The one git-level check of the four-byte `\` class. A wrong class
+            // makes git miss the index entry and report the tracked file.
+            touch(&dir, r"x\y.log");
+            touch(&dir, r"u\v.log");
+            git_add(&dir, &[r"x\y.log"]);
+            let got = git_ignored(&dir, &strings(&[".", r"x\y.log", r"u\v.log"])).unwrap();
+            assert!(
+                !got.contains(r"x\y.log"),
+                "tracked x\\y.log must not be reported"
+            );
+            assert!(got.contains(r"u\v.log"));
+        }
+        #[cfg(not(unix))]
+        eprintln!(
+            "SKIP test_git_ignored_glob_chars_are_literal (backslash case): \
+             this platform forbids `\\` in filenames. The Linux CI leg runs it."
+        );
+    }
+
+    #[test]
+    fn test_git_ignored_submodule_candidates_do_not_abort() {
+        require_git!("test_git_ignored_submodule_candidates_do_not_abort");
+        let src = init_repo("gi-subsrc");
+        touch(&src, "inner.txt");
+        git_add(&src, &["inner.txt"]);
+        git(
+            &src,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-qm",
+                "i",
+            ],
+        );
+
+        let dir = init_repo("gi-submod");
+        fs::write(dir.join(".gitignore"), "*.log\n").unwrap();
+        let src_url = src.to_string_lossy().replace('\\', "/");
+        git(
+            &dir,
+            &[
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                &src_url,
+                "mod",
+            ],
+        );
+        touch(&dir, "mod/x.log");
+        touch(&dir, "top.log");
+
+        let tree = walk(&opts_for(&dir, &[".*"], &[])).unwrap();
+        let candidates = gitignore_candidates(&dir, &tree);
+        assert!(!candidates.contains(&"mod/x.log".to_string()));
+        let got = git_ignored(&dir, &candidates);
+        assert!(got.is_ok(), "a submodule must not abort the query: {got:?}");
+        assert!(got.unwrap().contains("top.log"));
+    }
+
+    #[test]
+    fn test_git_ignored_outside_work_tree_errs() {
+        require_git!("test_git_ignored_outside_work_tree_errs");
+        let dir = tmp_dir("gi-plain");
+        let err = git_ignored(&dir, &strings(&[".", "a"])).unwrap_err();
+        assert!(err.contains("not a git repository"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn test_git_ignored_tracked_file_not_reported() {
+        require_git!("test_git_ignored_tracked_file_not_reported");
+        let dir = init_repo("gi-tracked");
+        fs::write(dir.join(".gitignore"), "*.log\n").unwrap();
+        touch(&dir, "tracked.log");
+        touch(&dir, "free.log");
+        git_add(&dir, &["tracked.log"]);
+        let got = git_ignored(&dir, &strings(&[".", "tracked.log", "free.log"])).unwrap();
+        assert!(!got.contains("tracked.log"));
+        assert!(got.contains("free.log"));
+    }
+
+    /// 20,000 synthetic paths of 60 bytes: over 1.2 MB each way, far past
+    /// any pipe buffer, which is what deadlocks a write-then-read implementation.
+    /// File globs match paths that do not exist, so no files are created.
+    fn synthetic_paths() -> Vec<String> {
+        (0..20_000)
+            .map(|i| {
+                format!(
+                    "generated_output/directory_{:03}/compiled_object_file_{i:06}.o",
+                    i / 100
+                )
+            })
+            .collect()
+    }
+
+    fn call_with_deadline(dir: &Path, paths: Vec<String>) -> Result<HashSet<String>, String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let d = dir.to_path_buf();
+        std::thread::spawn(move || {
+            let _ = tx.send(git_ignored(&d, &paths));
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(60))
+            .expect("git_ignored deadlocked or panicked: no result within 60 s")
+    }
+
+    #[test]
+    fn test_git_ignored_large_list_no_deadlock() {
+        require_git!("test_git_ignored_large_list_no_deadlock");
+        let dir = init_repo("gi-large");
+        fs::write(dir.join(".gitignore"), "*.o\n").unwrap();
+        let paths = synthetic_paths();
+        assert_eq!(paths[0].len(), 60, "paths are about 60 bytes, as planned");
+        // Checked, not claimed: over 1.2 MB inbound; each outbound record
+        // repeats the path beside the matching rule, so outbound is larger.
+        assert!(nul_payload(&paths).len() > 1_200_000);
+        let got = call_with_deadline(&dir, paths).unwrap();
+        assert_eq!(got.len(), 20_000);
+    }
+
+    #[test]
+    fn test_git_ignored_large_list_outside_work_tree_errs_without_panic() {
+        require_git!("test_git_ignored_large_list_outside_work_tree_errs_without_panic");
+        // Git exits during setup, before reading stdin, so the writer hits a
+        // broken pipe. That must surface as Err, not a panic.
+        let dir = tmp_dir("gi-large-plain");
+        assert!(call_with_deadline(&dir, synthetic_paths()).is_err());
+    }
+
+    #[test]
+    fn test_run_spawns_git_exactly_once() {
+        require_git!("test_run_spawns_git_exactly_once");
+        let dir = init_repo("gi-once");
+        fs::write(dir.join(".gitignore"), "*.log\n").unwrap();
+        for f in ["a.txt", "b.log", "src/c.rs", "src/d/e.rs", "docs/f.md"] {
+            touch(&dir, f);
+        }
+        let sink = tmp_dir("gi-once-out");
+        let opts = Options {
+            root: dir.to_path_buf(),
+            sink: Sink::File(sink.join("doc.md")),
+            ..Options::default()
+        };
+        GIT_SPAWNS.with(|n| n.set(0));
+        run(&opts).unwrap();
+        assert_eq!(GIT_SPAWNS.with(|n| n.get()), 1);
+        // And the one call did its job end to end: pruned, then rendered. `run`
+        // returns Ok even when the query fails, so the count alone would not
+        // show that.
+        let doc = fs::read_to_string(sink.join("doc.md")).unwrap();
+        assert!(
+            !doc.contains("File: b.log"),
+            "gitignored file must be pruned"
+        );
+        assert!(
+            doc.contains("File: src/d/e.rs"),
+            "nested kept file must render"
+        );
+    }
+
+    // ---- Sprint 1 / T-003: pruning ----
+
+    fn f(rel: &str) -> Node {
+        Node {
+            name: rel.rsplit('/').next().unwrap().to_string(),
+            rel: rel.to_string(),
+            kind: Kind::File,
+            unreadable: false,
+            children: Vec::new(),
+        }
+    }
+
+    fn d(rel: &str, children: Vec<Node>) -> Node {
+        Node {
+            kind: Kind::Dir,
+            children,
+            ..f(rel)
+        }
+    }
+
+    /// Every surviving path, sorted.
+    fn surviving(node: &Node) -> Vec<String> {
+        fn visit(n: &Node, out: &mut Vec<String>) {
+            for c in &n.children {
+                out.push(c.rel.clone());
+                visit(c, out);
+            }
+        }
+        let mut out = Vec::new();
+        visit(node, &mut out);
+        out.sort();
+        out
+    }
+
+    /// root/{out/{a.o, deep/b.o}, src/{gen.o, main.rs}, top.o, .cache/{c.bin}, keep.txt}
+    fn prune_fixture() -> Node {
+        d(
+            "",
+            vec![
+                d(
+                    "out",
+                    vec![f("out/a.o"), d("out/deep", vec![f("out/deep/b.o")])],
+                ),
+                d("src", vec![f("src/gen.o"), f("src/main.rs")]),
+                f("top.o"),
+                d(".cache", vec![f(".cache/c.bin")]),
+                f("keep.txt"),
+            ],
+        )
+    }
+
+    /// What git returns for `out/`, `*.o`, `.cache/`: every descendant of an
+    /// ignored directory is listed, as git really does.
+    fn prune_fixture_ignored() -> HashSet<String> {
+        set(&[
+            "out",
+            "out/a.o",
+            "out/deep",
+            "out/deep/b.o",
+            "src/gen.o",
+            "top.o",
+            ".cache",
+            ".cache/c.bin",
+        ])
+    }
+
+    fn pruned_with(include: &[&str]) -> Vec<String> {
+        let mut tree = prune_fixture();
+        let mut queried: HashSet<String> = surviving(&tree).into_iter().collect();
+        queried.insert(".".to_string());
+        prune_gitignored(
+            &mut tree,
+            &prune_fixture_ignored(),
+            &queried,
+            &strings(include),
+        );
+        surviving(&tree)
+    }
+
+    fn sorted(items: &[&str]) -> Vec<String> {
+        let mut v = strings(items);
+        v.sort();
+        v
+    }
+
+    #[test]
+    fn test_prune_gitignored_removes_subtree() {
+        assert_eq!(
+            pruned_with(&[]),
+            sorted(&["src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_include_exempts_subtree() {
+        // Exact name, in the set: the whole out/ subtree survives.
+        assert_eq!(
+            pruned_with(&["out"]),
+            sorted(&[
+                "out",
+                "out/a.o",
+                "out/deep",
+                "out/deep/b.o",
+                "src",
+                "src/main.rs",
+                "keep.txt"
+            ])
+        );
+        // File type: top-level and src/ .o files survive; out/ is still pruned
+        // with the .o files inside it, because pruning is top-down.
+        assert_eq!(
+            pruned_with(&["*.o"]),
+            sorted(&["src", "src/gen.o", "src/main.rs", "top.o", "keep.txt"])
+        );
+        // A path.
+        assert_eq!(
+            pruned_with(&["src/gen.o"]),
+            sorted(&["src", "src/gen.o", "src/main.rs", "keep.txt"])
+        );
+        // Dot-entries, via .cache in the set.
+        assert_eq!(
+            pruned_with(&[".*"]),
+            sorted(&[".cache", ".cache/c.bin", "src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_include_of_unignored_dir_gives_no_exemption() {
+        // src is not in the set, so including it exempts nothing inside it.
+        assert_eq!(
+            pruned_with(&["src"]),
+            sorted(&["src", "src/main.rs", "keep.txt"])
+        );
+    }
+
+    #[test]
+    fn test_prune_gitignored_ancestor_blocks_include() {
+        let got = pruned_with(&["out/deep/b.o"]);
+        assert!(!got.contains(&"out/deep/b.o".to_string()));
+        assert_eq!(got, sorted(&["src", "src/main.rs", "keep.txt"]));
+    }
+
+    #[test]
+    fn test_prune_gitignored_guard_keeps_unreported_descendant() {
+        // Mirrors git for `*`, `!*/`, `!*.tsx`, then `nested/`: the escaped
+        // app/[slug] is reported while its tracked page.tsx is not.
+        let mut tree = d(
+            "",
+            vec![
+                d(
+                    "app",
+                    vec![d(
+                        "app/[slug]",
+                        vec![f("app/[slug]/page.tsx"), f("app/[slug]/notes.md")],
+                    )],
+                ),
+                d("nested", vec![f("nested/inner.txt")]),
+            ],
+        );
+        // nested/inner.txt was never queried: nested holds a nested repository.
+        let queried = set(&[
+            ".",
+            "app",
+            "app/[slug]",
+            "app/[slug]/page.tsx",
+            "app/[slug]/notes.md",
+            "nested",
+        ]);
+        let ignored = set(&["app/[slug]", "app/[slug]/notes.md", "nested"]);
+        prune_gitignored(&mut tree, &ignored, &queried, &[]);
+        assert_eq!(
+            surviving(&tree),
+            sorted(&["app", "app/[slug]", "app/[slug]/page.tsx"])
+        );
     }
 
     #[test]

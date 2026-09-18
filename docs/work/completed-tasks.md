@@ -108,3 +108,74 @@
   that had no executed evidence anywhere at sprint close.
 - **Commit:** run <https://github.com/crussella0129/MDeezl/actions/runs/35292783471>
 
+## T-001 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** `use_gitignore` added to `Options`, on by default, with a
+  `--no-gitignore` flag. The help text now has a "What is omitted" section
+  naming both exclusion sources, the off switch, and the requirement for git on
+  `PATH` and a git work tree. 3 new tests; all 72 sprint 0 tests pass unedited.
+- **Commit:** `1f45a15ecbbe8ff3c3bb2ea61edc512cfc90f429`
+
+## T-002 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** One `git -C <root> check-ignore -z -v -n --stdin` per run, with
+  all fifteen repository-local git variables removed. Paths are `./`-prefixed
+  with bracket-class escaping, results are mapped by position, and stdin is
+  written from its own thread so a large list cannot deadlock. The candidate
+  list sends the root as `.` and skips the contents of nested repositories and
+  submodules. `run` reports a skip notice when the query fails or git reports
+  the scan root ignored; pruning arrives in T-003. 20 new tests, all passing.
+  They include a real submodule, the full-syntax fixture, and a 20,000-path
+  deadlock test that completes in about a second. The Unix-only backslash case
+  skipped on this host with its reason. `cargo tree` still reports only this
+  crate.
+- **Finding:** the e2e harness also sets `XDG_CONFIG_HOME`. That goes beyond
+  the locked plan's isolation list. Git's default excludes file is
+  `$XDG_CONFIG_HOME/git/ignore`, and `GIT_CONFIG_GLOBAL` alone does not disable
+  it; this host has one.
+- **Commit:** `bb5fa86a83cda194dd8040696249b8f04ec7341b`
+
+## T-003 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** `prune_gitignored` removes what git reports ignored, top-down,
+  so an included entry inside a pruned directory is not rescued. An include
+  that matches an entry git ignores exempts that entry's whole subtree; an
+  include that matches an entry git does not ignore exempts nothing. The
+  directory-removal guard keeps a reported directory whenever a queried entry
+  beneath it came back unreported, so a tracked file hidden by an escaped
+  directory name is never dropped. `run` now prunes before rendering, so both
+  halves of the document see the same file set.
+- **Verification:** 20 new tests; 115 in total, all passing, including all 72
+  sprint 0 tests unedited. The Unix-only colon and newline cases skipped on
+  this host with their reasons.
+- **Self-check:** on this repository an untracked `.tmp` probe was omitted by
+  the repo's own `*.tmp` rule while a `.txt` probe was kept, and
+  `--no-gitignore` restored both. The run took 0.2 s with an empty stderr.
+- **Commit:** `d38c65c4700f2a45280f85d1998c5fa0c519aed5`
+
+## T-004 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** "The ignore list" became "What is omitted", naming two sources
+  with `--include` outranking both. A new subsection documents the
+  repository's `.gitignore`: the git and work-tree requirement, the
+  degradation behaviour, the off switch, the tracked-file rule, the
+  directory-include exemption and its limit, the ancestor rule, the
+  ignored-scan-root skip, the nested-repository limitation, and the partial
+  matching of glob-character names. The usage line and flag table gained
+  `--no-gitignore`. The sprint 0 sentence "No gitignore support yet" is gone.
+  `test_readme_documents_gitignore` asserts every item. Two of its needles
+  first failed on case and on line wrapping, and were fixed in the test rather
+  than by bending the README.
+- **Commit:** `b3c5183ff5d904073d12e786adedd7792fb56699`
