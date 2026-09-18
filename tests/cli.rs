@@ -540,3 +540,22 @@ fn test_cli_help_documents_patterns_and_caveats() {
         "help must state that bodies cannot be inline"
     );
 }
+
+// ======================= Sprint 1: gitignore (INT-0004) =======================
+
+/// T-001. `--help` must say where an omission can come from.
+#[test]
+fn test_cli_help_names_both_exclusion_sources() {
+    let out = Command::new(EXE).arg("--help").output().unwrap();
+    assert!(out.status.success());
+    let help = String::from_utf8(out.stdout).unwrap();
+    for needle in [
+        "ignore list",
+        ".gitignore",
+        "--no-gitignore",
+        "PATH",
+        "work tree",
+    ] {
+        assert!(help.contains(needle), "help must mention {needle}");
+    }
+}

@@ -108,3 +108,13 @@
   that had no executed evidence anywhere at sprint close.
 - **Commit:** run <https://github.com/crussella0129/MDeezl/actions/runs/35292783471>
 
+## T-001 (sprint 1)
+
+- **Intent:** [INT-0004](../intents/INT-0004-gitignore-aware-exclusion.md)
+- **Completed:** 2026-09-18
+- **Touched:** `src/main.rs`, `tests/cli.rs`
+- **Summary:** `use_gitignore` added to `Options`, on by default, with a
+  `--no-gitignore` flag. The help text now has a "What is omitted" section
+  naming both exclusion sources, the off switch, and the requirement for git on
+  `PATH` and a git work tree. 3 new tests; all 72 sprint 0 tests pass unedited.
+- **Commit:** PENDING

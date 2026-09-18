@@ -2,7 +2,7 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0004
-- **State:** planned
+- **State:** active
 - **Work evidence:** [Sprint 1 build plan](../sprints/s1/sprint-plans/build-plan.md), [T-002 batched gitignore query](../sprints/s1/sprint-plans/build-plan.md#t-002-batched-gitignore-query)
 - **Completion evidence:** none
 - **Code evidence:** none
@@ -314,3 +314,6 @@ directory behaves as MDeezl does today.
   content an include asked for, in an escaped directory holding nothing git
   keeps — and why the guard deliberately does not count includes. No design
   change.
+- 2026-09-18: `planned → active`; sprint 1 Build Phase began implementing
+  T-001 through T-004. Backlog item T-102, which this intent carried, was
+  decomposed into those four tasks. Work evidence unchanged.

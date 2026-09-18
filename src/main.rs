@@ -34,6 +34,7 @@ OPTIONS:
         --wrap MODE       fence (default) | inline | none
         --exclude PATTERN add PATTERN to the ignore list (repeatable)
         --include PATTERN keep entries matching PATTERN even if ignored (repeatable)
+        --no-gitignore    do not apply the repository's .gitignore rules
     -h, --help            print this help
 
 WRAP MODES:
@@ -43,10 +44,20 @@ WRAP MODES:
             cannot be inline, so bodies are still fenced in this mode.
     none    no fences and no backticks anywhere
 
-IGNORE LIST:
-    Pre-populated with: .* target node_modules dist build __pycache__
-    An entry is omitted when it matches an ignore pattern and matches no
-    include pattern -- include always wins.
+WHAT IS OMITTED:
+    Entries are omitted from two sources, and --include outranks both.
+
+    1. The ignore list, pre-populated with:
+           .* target node_modules dist build __pycache__
+       An entry is omitted when it matches an ignore pattern and matches no
+       include pattern -- include always wins.
+
+    2. The repository's own .gitignore rules, applied by asking git itself, so
+       the full gitignore syntax works. Files the repository tracks are kept
+       even when a rule matches them. This needs git on your PATH, and the
+       scanned directory must be inside a git work tree; otherwise mdeezl says
+       so on stderr and uses the ignore list alone. Turn it off with
+       --no-gitignore.
 
 PATTERN FORMS:
     .*            any name beginning with a dot (hidden entries, including .git)
@@ -78,6 +89,8 @@ struct Options {
     wrap: Wrap,
     ignore: Vec<String>,
     include: Vec<String>,
+    /// Apply the repository's own `.gitignore` rules. See INT-0004.
+    use_gitignore: bool,
 }
 
 impl Default for Options {
@@ -88,6 +101,7 @@ impl Default for Options {
             wrap: Wrap::Fence,
             ignore: DEFAULT_IGNORES.iter().map(|s| s.to_string()).collect(),
             include: Vec::new(),
+            use_gitignore: true,
         }
     }
 }
@@ -128,6 +142,7 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String>
             }
             "--exclude" => opts.ignore.push(value("--exclude")?),
             "--include" => opts.include.push(value("--include")?),
+            "--no-gitignore" => opts.use_gitignore = false,
             other if root_seen => {
                 return Err(format!("unexpected second path `{other}`"));
             }
@@ -532,6 +547,26 @@ mod tests {
     #[test]
     fn test_args_rejects_second_positional() {
         assert!(err(&["a", "b"]).contains('b'));
+    }
+
+    // ---- Sprint 1 / T-001: gitignore off switch ----
+
+    #[test]
+    fn test_args_gitignore_on_by_default() {
+        assert!(run_opts(&[]).use_gitignore);
+    }
+
+    #[test]
+    fn test_args_no_gitignore() {
+        let o = run_opts(&["--no-gitignore"]);
+        assert!(!o.use_gitignore);
+        // Every other option keeps its default.
+        let d = Options::default();
+        assert_eq!(o.root, d.root);
+        assert_eq!(o.sink, d.sink);
+        assert_eq!(o.wrap, d.wrap);
+        assert_eq!(o.ignore, d.ignore);
+        assert_eq!(o.include, d.include);
     }
 
     #[test]
