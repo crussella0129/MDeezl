@@ -58,10 +58,10 @@ pure-`std` shape if entangled with it.
   - **It works for every provider's plain HTTPS clone URL.**
   - **The fetch is hardened so it can never wait on a person.** The measured
     command is
-    `git -c credential.helper= -c core.askPass= -c core.autocrlf=false clone --depth 1 --quiet -- <url> <dest>`.
+    `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf clone --depth 1 --quiet -- <url> <dest>`.
     It runs with:
-    - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and
-      `GIT_ALLOW_PROTOCOL=https:http:file` set;
+    - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`,
+      `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
     - `GIT_ASKPASS`, `SSH_ASKPASS` and the repository-local variables removed.
 
     Why each part is needed:
@@ -69,9 +69,6 @@ pure-`std` shape if entangled with it.
       other three are `GIT_ASKPASS`, `core.askPass` and `SSH_ASKPASS`.
     - **An `insteadOf` rule can rewrite an https URL to ssh.** The allow-list
       turns that into a fast failure: "transport 'ssh' not allowed", in 122 ms.
-    - **The committed bytes are kept.** `core.autocrlf=false` stops a Windows
-      system config from converting line endings, so the bundle holds the
-      repository's content as committed, the same on every OS.
     - **No console window.** On Windows, git is spawned with
       `CREATE_NO_WINDOW`, so a windowed caller never flashes a console.
     - **Same line endings on every OS.** `core.autocrlf=false` alone is not
@@ -84,7 +81,9 @@ pure-`std` shape if entangled with it.
   - **What is shown differs from what is fetched.** The heading, error lines
     and GUI status show the URL with any `user[:password]@` removed, so a token
     in a URL is never copied into a document meant for pasting. The clone uses
-    the URL as given.
+    the URL as given, which means a URL that carries its own credentials can
+    clone a private repository. MDeezl itself never prompts for credentials and
+    uses no credential helper.
   - **The repository name is made safe.** The name comes from the URL's last
     path segment. `.`, `..`, or anything containing `\`, `:`, `?` or `#`,
     becomes `repository`, so the name can never leave its folder when it is
@@ -103,7 +102,8 @@ pure-`std` shape if entangled with it.
     decide what a URL is. `file://` is a URL git clones, and accepting it lets
     the whole remote path be tested offline.
   - **The heading records the source.** For a URL source, the document's
-    heading is `# <url>`, and the tree root is the repository's name. That uses
+    heading is `# <display-url>` (see below), and the tree root is the
+    repository's name. That uses
     the existing heading line rather than adding any new element to the
     format, so local-path output stays byte-identical.
 
@@ -149,3 +149,13 @@ pure-`std` shape if entangled with it.
 
   Two Consequences were added: Ctrl+C in the CLI can leave a temporary clone,
   and LFS files appear as pointers.
+- 2026-09-19: amended while `planned`, from the third sprint 3 plan critique.
+  - The Alternatives now state the full command, with `core.eol=lf` and
+    `GIT_LFS_SKIP_SMUDGE=1`.
+  - The "committed bytes are kept" bullet was removed, because measurement
+    disproved it. This supersedes the round-1 entry above, which said the clone
+    "keeps committed bytes with `core.autocrlf=false`". That entry stays as
+    written.
+  - The heading is written as `# <display-url>`.
+  - It is now recorded that a URL carrying its own credentials can clone a
+    private repository, since MDeezl only guarantees that it never prompts.

@@ -111,9 +111,17 @@ stack to a project that has so far had no runtime dependencies at all.
 - **Generate replaces an existing `<name>.md`.** The document is written to a
   temporary sibling file and renamed over the target in one step, so a failed
   run never damages an earlier good file.
-- **Closing the window during a fetch waits for it.** The app's drop joins its
-  worker, so the engine's temporary clone is removed before the process exits.
-  The process may therefore linger, windowless, until the clone ends.
+- **Closing the window during a fetch defers the close.** While a job runs,
+  a close request is cancelled. The status then says the window will close
+  when the job ends, the window stays responsive, and it closes itself when
+  the worker finishes, so the engine's temporary clone is removed first. The
+  app's drop also joins the worker, as a backstop. A clone that stalls
+  indefinitely keeps the window open until git gives up.
+- **Every CLI build now resolves the GUI's dependency graph.** Cargo keeps one
+  lockfile per workspace, so building or installing the `mdeezl` crate on a
+  fresh machine needs registry index data for the GUI's crates too, but
+  downloads none of them. This is reasoned from Cargo's workspace resolution
+  and not measured. `cargo tree -p mdeezl` still reports only `mdeezl`.
 - **The window repaints on its own while working**, so the result appears
   without the user moving the mouse.
 - **The CI gate lines change.** `fmt` and `clippy` must cover the workspace,
@@ -150,3 +158,8 @@ stack to a project that has so far had no runtime dependencies at all.
 - 2026-09-19: amended while `planned`, from the second sprint 3 plan critique.
   Two Consequences were added: closing the window waits for a running fetch,
   and the window repaints on its own while working.
+- 2026-09-19: amended while `planned`, from the third sprint 3 plan critique.
+  - The close consequence was corrected. eframe drops the app inside its event
+    loop, so joining there would freeze a still-visible window. A close during
+    a job is now cancelled and completed when the job ends.
+  - The workspace-resolution consequence for CLI builds was added.

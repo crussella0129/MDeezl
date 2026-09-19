@@ -9,10 +9,13 @@ changed.
 |-------|---------|----------|
 | 1 | `block` | 16 |
 | 2 | `proceed-with-caveats` | 10 |
+| 3 | `proceed-with-caveats` | 4 |
 
 Round 2 verified the round-1 resolutions against the revised plans, the
 intents and the crate sources, and raised ten new concerns (R2 C-001 to
-C-010). They follow the round-1 concerns.
+C-010). They follow the round-1 concerns. Round 3 confirmed that the round-2
+fixes held and that no round-1 fix had regressed, and raised four concerns
+(R3 C-001 to C-004), which come last.
 
 ## Concerns
 
@@ -266,6 +269,53 @@ C-010). They follow the round-1 concerns.
   - **Verbatim check:** runs on committed blobs.
   - **T-003 Touches:** lists `Cargo.lock`.
   - **T-002 Intent:** names INT-0006 for the no-console-window clause.
+
+### R3 C-001: Closing the window during a fetch would freeze it on screen
+- **Where:** INT-0006 Consequences; T-004 drop clause
+- **Quote:** "The process may therefore linger, windowless, until the clone ends."
+- **Failure mode:** intent-drift
+- **Why it matters:** eframe 0.36 drops the app inside the event loop, before the window, so a join in `Drop` would leave a visible, unresponsive window, marked "Not Responding", until the fetch ends.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed with the critic's option (a).
+  - **The close is deferred.** A close requested while working sends `ViewportCommand::CancelClose`, sets the status to `Closing when the current job finishes…` and keeps repainting. `Close` is sent in the frame after the result arrives. An idle close proceeds normally.
+  - **The `Drop` join stays** as a backstop.
+  - **Checks.** `test_close_while_working_defers_then_closes` pushes `ViewportEvent::Close` and asserts both commands. The manual check now observes the window as well as the temp folder.
+  - **INT-0006** records the corrected consequence.
+
+  Both the command and the event were confirmed in egui-0.36.2: `viewport.rs` has `Close` and `CancelClose`, and `viewport_info.rs` has `ViewportEvent::Close`.
+
+### R3 C-002: INT-0002's Alternatives still carried the stale command and a disproved claim
+- **Where:** INT-0002 Alternatives
+- **Quote:** "`… -c core.autocrlf=false clone --depth 1 --quiet -- <url> <dest>`" / "the same on every OS"
+- **Failure mode:** intent-drift
+- **Why it matters:** the intent contradicted itself and T-002.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - The command gains `core.eol=lf`, and the environment gains `GIT_LFS_SKIP_SMUDGE=1`.
+  - The disproved "committed bytes are kept" bullet is removed from Alternatives, which are not append-only.
+  - The heading reads `# <display-url>`.
+  - A history note says the round-1 byte claim is superseded, and leaves that entry as written.
+
+### R3 C-003: The workspace makes every CLI build resolve the GUI's graph
+- **Where:** T-003 workspace clause; INT-0006 Consequences
+- **Quote:** "`gui/` **SHALL** be the member package `mdeezl-gui`"
+- **Failure mode:** intent-drift
+- **Why it matters:** a fresh or offline CLI build now needs registry index data for the GUI's crates.
+- **Suggested response:** fix-in-plan or defer-with-rationale
+- **Resolution:** recorded. INT-0006's Consequences state it, labelled as reasoned from Cargo's workspace resolution and not measured. The workspace design is kept: a separate GUI workspace would need its own CI gates and lockfile, and the user approved the workspace member. Offline CLI builds are not an INT-0001 criterion.
+
+### R3 C-004: Smaller gaps
+- **Where:** T-003 Notes; T-002 help clause; T-004; the manual checks; `test_readme_documents_url_sources`
+- **Quote:** "`Browse…` opens `rfd::FileDialog::pick_folder`"; "private repositories are not supported"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** there was an untraced manual check, a weak negative needle, inaccurate help text, a GUI display-form gap, and a local name that could escape the output folder.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Browse…** has an EARS clause verified by hand. Every manual check has a traceability row.
+  - **The README needle** normalises whitespace and matches `remote repositor`.
+  - **The help and README** now say mdeezl "never prompts for credentials and uses no credential helper". INT-0002 records that a URL carrying credentials can clone a private repository.
+  - **`test_generate_unreachable_url_writes_nothing`** uses `user:SECRET@` and asserts `SECRET` never appears.
+  - **A new T-004 clause** makes the output stem `Bundle.name` only when that is a single normal component, and otherwise `bundle`. `test_output_stem_is_one_component` covers it.
 
 ## Confidence
 proceed-with-caveats

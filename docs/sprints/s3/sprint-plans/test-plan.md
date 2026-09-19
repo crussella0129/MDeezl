@@ -17,7 +17,7 @@
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Failures give stderr, non-zero exit and no partial document | T-002 / WHEN the fetch fails THEN exit 1, empty stdout, one `could not fetch` line | `test_cli_unreachable_url_exits_1`; `test_cli_url_without_git_exits_1`; `test_fetch_bad_url_errs` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | The temporary copy is removed | T-002 / WHEN a fetch ends THEN its directory is gone | `test_fetch_file_url_bundles_the_clone`; `test_fetch_bad_url_errs`; `test_cli_file_url_source_bundles_the_clone`; `test_cli_unreachable_url_exits_1` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working (no console flash) | T-002 / WHEN git is spawned on Windows THEN `CREATE_NO_WINDOW` | `test_git_commands_set_create_no_window` (Windows only; self-skips elsewhere); **manual check** with the release GUI |
-| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Documented source forms | T-002 / WHEN `--help` or the README is read THEN URL, git, temporary clone, no private repositories; exit code `1` covers a fetch; "Not yet" drops remotes | `test_cli_help_documents_url_sources`; `test_readme_documents_url_sources` |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Documented source forms | T-002 / WHEN `--help` or the README is read THEN URL, git, temporary clone, never prompts for credentials; exit code `1` covers a fetch; "Not yet" drops remotes | `test_cli_help_documents_url_sources`; `test_readme_documents_url_sources` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Remote over the real network | T-002 (all clauses, live) | `test_live_github_clone` (`#[ignore]`), run by hand in the Test Phase |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Reading a git ref does not mutate the working tree | none — the git-ref half, backlog T-103 | **not in this sprint**; INT-0002 stays `active` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The CLI stays dependency-free | T-003 / WHEN built THEN `mdeezl-gui` has exactly the planned dependencies and features | `test_gui_manifest_dependencies` |
@@ -25,10 +25,14 @@
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls | T-003 / WHEN started THEN the defaults | `test_app_defaults` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The CLI's own output | T-003 / WHEN the fields are set THEN `App::options()` follows them | `test_options_follow_the_fields` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls | T-003 / WHEN a folder is dropped THEN it becomes the source | `test_dropped_folder_fills_source` |
+| [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls (a folder picker) | T-003 / WHEN Browse… is clicked THEN a native picker opens and fills its field | **manual check**: Browse… |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 / WHEN Generate is activated THEN working before return, and the job on a worker | `test_generate_marks_working_before_returning` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The CLI's own output | T-004 / WHEN the job succeeds THEN temp, rename, `Wrote … (<size>)`, notices, and engine bytes | `test_generate_writes_engine_bytes`; `test_generate_shows_notices`; `test_format_size` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 / WHEN working THEN Generate disabled; `Fetching…` or `Bundling…`; a repaint within 100 ms | `test_generate_disabled_while_working`; `test_status_names_fetching_or_bundling` |
-| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md), [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The temporary copy is removed; no partial files | T-004 / WHEN the app is dropped while working THEN it waits for the worker | `test_dropping_app_waits_for_worker`; **manual check**: closing the window during a live fetch leaves no `mdeezl-*` folder in the temp folder |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md), [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The temporary copy is removed; responsive while working | T-004 / WHEN close is requested while working THEN CancelClose, status, then Close after the result | `test_close_while_working_defers_then_closes`; **manual check**: closing during a live fetch keeps the window responsive, closes it when the clone ends, and leaves no `mdeezl-*` folder |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md), [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The temporary copy is removed | T-004 / WHEN the app is dropped while working THEN it waits for the worker | `test_dropping_app_waits_for_worker` |
+| [INT-0006](../../../intents/INT-0006-desktop-gui.md) | No partial files (the file lands in the output folder) | T-004 / WHEN the output file is named THEN one normal component, else `bundle` | `test_output_stem_is_one_component` |
+| [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 (all clauses, live) | **manual check**: a live GitHub URL shows `Fetching…` while the window stays responsive, with no console flash |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | No partial files | T-004 / WHEN the job or write fails THEN error, temp removed, existing file untouched | `test_failed_job_keeps_existing_output`; `test_generate_missing_folder_writes_nothing`; `test_generate_unreachable_url_writes_nothing`; `test_generate_unwritable_output_writes_nothing` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls | T-004 / WHEN a field is empty THEN the status names it, and no job | `test_generate_requires_source_and_output` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Tested in CI on both OSes | T-005 / WHEN CI runs THEN the three workspace gates, nothing else changed | `test_ci_updates_installs_and_logs_in_order` (updated); the **gate mutation check** |
@@ -91,6 +95,9 @@
   - `image`, `egui_extras`, `resvg` and `usvg` appear nowhere.
 - `test_options_follow_the_fields`: for each of the three wrap modes, with the checkbox on and off, `App::options()` equals the expected literal.
 - `test_format_size`: `0` → `0 bytes`, `1023` → `1023 bytes`, `1024` → `1.0 KB`, `1536` → `1.5 KB`, `1048576` → `1.0 MB`.
+- `test_output_stem_is_one_component`:
+  - `Hello-World` → `Hello-World`, and `repo.v2` → `repo.v2`;
+  - `""`, `.`, `..`, `a/b`, `a\b`, `C:\` and `/` each → `bundle`.
 
 ### T-006 unit tests (`gui`)
 - **Intent:** [INT-0006](../../../intents/INT-0006-desktop-gui.md)
@@ -136,10 +143,10 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - The temp folder is empty afterwards.
   - Localhost only, so no network is used.
 - `test_cli_url_without_git_exits_1`: an empty `PATH` and a `file://` URL give exit 1, empty stdout, and stderr ending `git was not found on PATH`.
-- `test_cli_help_documents_url_sources`: `--help` contains `URL`, `https://`, `git`, `temporary`, and `private repositories are not supported`.
+- `test_cli_help_documents_url_sources`: `--help` contains `URL`, `https://`, `git`, `temporary`, and `never prompts for credentials`.
 - `test_readme_documents_url_sources`: the README contains the same.
   - Its exit-code paragraph mentions a failed fetch.
-  - Its "Not yet" section does **not** contain `remote repository`.
+  - Its "Not yet" section, with whitespace normalised to single spaces, does **not** contain `remote repositor`, so "repository" and "repositories" are both caught.
 - `test_live_github_clone` (`#[ignore]`, run by hand in the Test Phase):
   - `https://github.com/octocat/Hello-World` bundles, with heading `# https://github.com/octocat/Hello-World` and a `README` section;
   - `https://github.com/octocat/definitely-not-a-repo-mdeezl` fails within 10 s, with exit 1 and no prompt;
@@ -159,13 +166,18 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
 
     After release and completion, `Generate` is enabled again.
   - `test_dropping_app_waits_for_worker`: a gated job is released by another thread after 200 ms. Dropping the harness, and with it the app, returns only after the job has finished, which a flag set by the job shows.
+  - `test_close_while_working_defers_then_closes`: with a gated job running, `ViewportEvent::Close` is pushed into the root viewport's input events and one `step()` is run.
+    - The root viewport output's commands contain `CancelClose`.
+    - The status reads `Closing when the current job finishes…`.
+    - After release and polling, a later frame's commands contain `Close`.
+    - With no job running, a pushed close produces no `CancelClose`.
   - `test_status_names_fetching_or_bundling`: with a gated job, a local source shows `Bundling…` and a `file://` source shows `Fetching…`.
   - `test_generate_shows_notices`: the real job on a fixture that is not a git work tree gives a status containing `Wrote` and `gitignore filtering skipped:`.
   - `test_failed_job_keeps_existing_output`, two cases:
     1. `<out>/<name>.md` is pre-seeded with a sentinel, then a job returns `Err`. The status shows the error, the sentinel is unchanged, and no `.mdeezl-tmp` file remains.
     2. `<out>/<name>.md` is a *directory*, so the rename fails. The status shows the error, the directory is still there, and no `.mdeezl-tmp` file remains.
   - `test_generate_missing_folder_writes_nothing`: the real job on a missing path shows an error, and the output folder stays empty.
-  - `test_generate_unreachable_url_writes_nothing`: the real job on `https://127.0.0.1:1/x.git` shows an error beginning `could not fetch`, and the output folder stays empty.
+  - `test_generate_unreachable_url_writes_nothing`: the real job on `https://user:SECRET@127.0.0.1:1/x.git`. The status shows an error beginning `could not fetch https://127.0.0.1:1/x.git`, never `SECRET`, and the output folder stays empty.
   - `test_generate_unwritable_output_writes_nothing`: the output path is an existing *file*. An error is shown, and the file's contents are unchanged.
   - `test_generate_requires_source_and_output`: an empty source gives `Choose a folder or URL`, and an empty output gives `Choose an output folder`. The job's call counter stays 0.
   - `test_hero_paints_weasel_shapes`: after one `step()`, the painted output, clipped to `App::hero_rect()`, contains:
@@ -179,8 +191,8 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - `Source`, `Browse…`, `fence`, `inline`, `none`, `Respect .gitignore`, `Output folder` and `Generate`;
   - `.md`, `replac`, and `git`.
 - **Human verification:** a screenshot of the running app, captured from the real window, is shown to the user. Their verdict on the weasel is quoted in the test report.
-- **Manual checks**, recorded in the test report:
+- **Manual checks**, recorded in the test report, each traced in the table above:
   - `Browse…` opens a native folder picker and fills its field;
   - a live GitHub URL generated from the release window shows `Fetching…` while the window stays responsive;
   - no console window flashes while it runs;
-  - closing the window during a live fetch leaves no `mdeezl-*` folder in the temp folder.
+  - closing the window during a live fetch keeps the window responsive, closes it when the clone ends, and leaves no `mdeezl-*` folder in the temp folder.

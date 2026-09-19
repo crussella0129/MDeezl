@@ -93,7 +93,7 @@
     - a URL may be given in place of PATH;
     - it needs git;
     - it is shallow-cloned into a temporary folder that is removed afterwards;
-    - private repositories are not supported.
+    - mdeezl never prompts for credentials and uses no credential helper.
 
     The README's exit-code line **SHALL** count a failed fetch under `1`. Its "Not yet" section **SHALL** no longer list remote repositories; it keeps the git-ref half and INT-0003.
 - **Notes:**
@@ -127,8 +127,8 @@
   - **WHEN** the app starts, **THEN** `fence` **SHALL** be selected and the checkbox checked. The output field **SHALL** hold the home folder: `USERPROFILE` on Windows, `HOME` elsewhere, `.` if unset.
   - **WHEN** the fields hold a source, a wrap choice and a checkbox state, **THEN** `App::options()` **SHALL** equal `Options { root: source, wrap: choice, use_gitignore: checkbox, ..Options::default() }`.
   - **WHEN** a folder is dropped onto the window, **THEN** the source field **SHALL** become that folder's path.
+  - **WHEN** a `Browse…` button is clicked, **THEN** a native folder picker (`rfd::FileDialog::pick_folder`) **SHALL** open, and a chosen folder **SHALL** replace its field's text. A cancelled picker leaves the field unchanged. A native dialog cannot be driven headlessly, so this clause is verified by hand.
 - **Notes:**
-  - `Browse…` opens `rfd::FileDialog::pick_folder`. A native dialog cannot be driven headlessly, so it is checked by hand in the Test Phase.
   - `gui/src/main.rs` calls `mdeezl_gui::native_options()` and `eframe::run_native`. A release build sets `windows_subsystem = "windows"`.
   - `wayland` is on because `accesskit` already brings winit's Wayland backend, which picks Wayland whenever `WAYLAND_DISPLAY` is set. Without eframe's `wayland`, glutin could not open that window. The critic verified this.
 
@@ -149,9 +149,17 @@
 
     `<size>` is `format_size(bytes)`: `N bytes` below 1024, `N.N KB` below 1 MiB, `N.N MB` otherwise. The file's bytes **SHALL** equal `bundle(&options).document`.
   - **WHEN** the app is working, **THEN** `Generate` **SHALL** be disabled, and the status **SHALL** read `Fetching…` if `mdeezl::is_url(source)`, otherwise `Bundling…`. Every frame **SHALL** request a repaint within 100 ms, so the window shows the result without waiting for input.
-  - **WHEN** the app is dropped while its worker runs, as when the window closes during a fetch, **THEN** the drop **SHALL** wait for the worker to finish, so the engine's temporary-clone guard runs before the process exits.
+  - **WHEN** the window's close is requested while the app is working, **THEN** the app **SHALL**:
+    - send `ViewportCommand::CancelClose`;
+    - set the status to `Closing when the current job finishes…`;
+    - keep repainting;
+    - send `ViewportCommand::Close` in the frame after the worker's result arrives.
+
+    **WHEN** a close is requested while idle, **THEN** it **SHALL** proceed normally.
+  - **WHEN** the app is dropped while its worker runs, **THEN** the drop **SHALL** wait for the worker to finish, as a backstop, so the engine's temporary-clone guard runs before the process exits.
   - **WHEN** the job fails, or the write or rename fails, **THEN** the status **SHALL** show the error, and the temporary sibling **SHALL** be removed. An existing `<name>.md` **SHALL** be left exactly as it was; if none existed, none **SHALL** exist. A rename failure is provoked by making `<name>.md` a directory.
   - **WHEN** `Generate` is activated with an empty source, **THEN** the status **SHALL** read `Choose a folder or URL`. With an empty output folder it **SHALL** read `Choose an output folder`. In both cases no job **SHALL** start.
+  - **WHEN** the output file is named, **THEN** its stem **SHALL** be `Bundle.name` only if that is a single normal path component. Otherwise it **SHALL** be `bundle`: an empty name, `.`, `..`, or one containing a separator or a drive or root prefix. That happens when a filesystem root is bundled, whose name falls back to the whole path. The file therefore always lands inside the output folder.
 - **Notes:** a successful Generate replaces an existing `<name>.md` in one rename, which INT-0006 records.
 
 ### T-005: CI gates cover the workspace
