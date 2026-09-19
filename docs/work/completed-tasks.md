@@ -405,3 +405,40 @@
   - **CI.** The observation on both legs is recorded in the sprint 3 test
     report.
 - **Commit:** `2b686259f84d4004a2c4805dbf34daea7f347549`
+
+## T-006 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `gui/src/weasel.rs` (new), `gui/src/lib.rs`, `gui/tests/app.rs`
+- **Summary:** The weasel, drawn from one list of shapes in a unit box
+  `[0,1] × [0,0.6]`, with no image file and no image decoding.
+  - **The shapes.** Discs, plus "tubes": Bézier-sampled polylines whose
+    points carry a radius. The pose is a weasel in mid-bound:
+    - an arched brown back;
+    - a tapering tail with a dark stoat tip;
+    - stubby legs, the far pair a shade darker;
+    - a cream underside along the neck, and a cream chin;
+    - a round head with an ear, an eye with a highlight, and a nose.
+  - **The hero.** `weasel::paint` draws a filled circle per disc and per tube
+    point, and a line segment per tube segment. The hero is 280 points wide,
+    centred above a centred heading and tagline. Its rect is exposed as
+    `App::hero_rect()`.
+  - **The icon.** `weasel::icon(64)` rasterises the same shapes with 4×4
+    supersampling. `native_options()` sets it as the window icon.
+- **Verification:**
+  - **Tests.** Four new ones: `test_weasel_shapes_fit_the_unit_box`,
+    `test_icon_rasterises_the_weasel` (opaque share measured at 0.177),
+    `test_native_options_carry_the_icon` and
+    `test_hero_paints_weasel_shapes`. The last counts shapes inside the hero
+    rect only, so the radio buttons' circles are excluded. 26 GUI tests in all.
+  - **Visual check.** The real window was captured through eframe's own GL
+    readback (`ViewportCommand::Screenshot`) by a scratch harness outside the
+    repository. GDI screen capture returned a white client area for the glow
+    surface.
+  - **One revision.** The first capture showed the cream throat jutting out
+    in front of the neck. It was moved inside the neck's lower edge, and the
+    heading was centred. The user's verdict on the weasel is taken in the
+    Test Phase.
+  - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
+- **Commit:** PENDING

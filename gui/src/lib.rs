@@ -12,6 +12,8 @@ use std::time::Duration;
 use eframe::egui;
 use mdeezl::{Bundle, Options, Wrap};
 
+pub mod weasel;
+
 /// The window's size: room for the controls and the status line, no more.
 const WINDOW_SIZE: [f32; 2] = [520.0, 600.0];
 
@@ -20,13 +22,17 @@ const POLL: Duration = Duration::from_millis(100);
 
 const CLOSING: &str = "Closing when the current job finishes…";
 
-/// How eframe should open the window.
+/// The hero weasel's width in points; its height follows the unit box.
+const HERO_WIDTH: f32 = 280.0;
+
+/// How eframe should open the window, with the weasel as its icon.
 pub fn native_options() -> eframe::NativeOptions {
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("MDeezl")
             .with_inner_size(WINDOW_SIZE)
-            .with_min_inner_size([420.0, 480.0]),
+            .with_min_inner_size([420.0, 480.0])
+            .with_icon(Arc::new(weasel::icon(64))),
         ..Default::default()
     }
 }
@@ -112,6 +118,8 @@ pub struct App {
     status_is_error: bool,
     /// The window asked to close while working; close once the job ends.
     close_pending: bool,
+    /// Where the hero weasel was last painted.
+    hero_rect: Option<egui::Rect>,
 }
 
 impl Default for App {
@@ -126,6 +134,7 @@ impl Default for App {
             status: String::new(),
             status_is_error: false,
             close_pending: false,
+            hero_rect: None,
         }
     }
 }
@@ -158,6 +167,11 @@ impl App {
 
     pub fn status_is_error(&self) -> bool {
         self.status_is_error
+    }
+
+    /// Where the hero weasel was painted in the last frame.
+    pub fn hero_rect(&self) -> Option<egui::Rect> {
+        self.hero_rect
     }
 
     fn fail(&mut self, message: impl Into<String>) {
@@ -267,8 +281,15 @@ impl App {
     pub fn draw(&mut self, ui: &mut egui::Ui) {
         self.take_dropped_folder(ui.ctx());
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("MDeezl");
-            ui.label("Feed any repository to text-only agents.");
+            ui.vertical_centered(|ui| {
+                let width = HERO_WIDTH.min(ui.available_width());
+                let size = egui::vec2(width, width * weasel::HEIGHT);
+                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                weasel::paint(ui.painter(), rect);
+                self.hero_rect = Some(rect);
+                ui.heading("MDeezl");
+                ui.label("Feed any repository to text-only agents.");
+            });
             ui.add_space(16.0);
 
             let label = ui.label("Source");

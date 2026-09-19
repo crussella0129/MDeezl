@@ -16,7 +16,7 @@ use egui_kittest::{
     kittest::{NodeT, Queryable},
 };
 use mdeezl::{Bundle, Options, Wrap};
-use mdeezl_gui::{App, Job, format_size, home_folder, output_stem};
+use mdeezl_gui::{App, Job, format_size, home_folder, native_options, output_stem, weasel};
 
 /// A temp directory that removes itself, even when an assertion panics.
 struct Tmp(PathBuf);
@@ -725,4 +725,94 @@ fn test_worker_wakes_the_window() {
         );
         std::thread::sleep(Duration::from_millis(10));
     }
+}
+
+// ======================= T-006: the weasel =======================
+
+/// T-006. The weasel lies in its unit box, and is more than a blob.
+#[test]
+fn test_weasel_shapes_fit_the_unit_box() {
+    let shapes = weasel::shapes();
+    assert!(!shapes.is_empty());
+    let mut tubes = 0;
+    let inside = |x: f32, y: f32, r: f32| {
+        x - r >= 0.0 && x + r <= 1.0 && y - r >= 0.0 && y + r <= weasel::HEIGHT
+    };
+    for shape in &shapes {
+        match shape {
+            weasel::Shape::Disc { center, radius, .. } => {
+                assert!(inside(center[0], center[1], *radius), "{shape:?}");
+            }
+            weasel::Shape::Tube { points, .. } => {
+                tubes += 1;
+                assert!(points.len() >= 2, "{shape:?}");
+                for p in points {
+                    assert!(inside(p[0], p[1], p[2]), "{p:?} in {shape:?}");
+                }
+            }
+        }
+    }
+    assert!(tubes >= 1);
+}
+
+/// T-006. The icon is the same weasel, rasterised: transparent corners and a
+/// plausible share of opaque pixels.
+#[test]
+fn test_icon_rasterises_the_weasel() {
+    let icon = weasel::icon(64);
+    assert_eq!((icon.width, icon.height), (64, 64));
+    assert_eq!(icon.rgba.len(), 64 * 64 * 4);
+    let alpha = |x: usize, y: usize| icon.rgba[(y * 64 + x) * 4 + 3];
+    for (x, y) in [(0, 0), (63, 0), (0, 63), (63, 63)] {
+        assert_eq!(alpha(x, y), 0, "corner ({x}, {y})");
+    }
+    let opaque = icon.rgba.chunks(4).filter(|p| p[3] >= 128).count();
+    let share = opaque as f64 / (64.0 * 64.0);
+    assert!((0.15..=0.60).contains(&share), "opaque share {share:.3}");
+}
+
+/// T-006. The window opens with the weasel as its icon.
+#[test]
+fn test_native_options_carry_the_icon() {
+    let options = native_options();
+    let icon = options.viewport.icon.expect("an icon");
+    assert_eq!((icon.width, icon.height), (64, 64));
+    assert_eq!(icon.rgba, weasel::icon(64).rgba);
+}
+
+/// T-006. The hero is really painted: every disc and tube point as a filled
+/// circle and every tube segment as a line, all inside the hero's rect --
+/// which the radio buttons' circles are not.
+#[test]
+fn test_hero_paints_weasel_shapes() {
+    let h = harness(App::default());
+    let hero = h
+        .state()
+        .hero_rect()
+        .expect("the hero was painted")
+        .expand(1.0);
+    let (mut want_circles, mut want_segments) = (0, 0);
+    for shape in weasel::shapes() {
+        match shape {
+            weasel::Shape::Disc { .. } => want_circles += 1,
+            weasel::Shape::Tube { points, .. } => {
+                want_circles += points.len();
+                want_segments += points.len() - 1;
+            }
+        }
+    }
+    let (mut circles, mut segments) = (0, 0);
+    for clipped in &h.output().shapes {
+        match &clipped.shape {
+            egui::Shape::Circle(c) if hero.contains(c.center) => circles += 1,
+            egui::Shape::LineSegment { points, .. }
+                if hero.contains(points[0]) && hero.contains(points[1]) =>
+            {
+                segments += 1;
+            }
+            _ => {}
+        }
+    }
+    assert!(circles >= want_circles, "{circles} < {want_circles}");
+    assert!(segments >= want_segments, "{segments} < {want_segments}");
 }
