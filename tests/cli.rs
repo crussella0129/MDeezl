@@ -1400,6 +1400,10 @@ fn test_ci_updates_installs_and_logs_in_order() {
             .any(|l| l.starts_with("if:") || l.starts_with("continue-on-error:")),
         "the version-log step must be neither conditional nor allowed to fail"
     );
+    assert!(
+        !log_step.iter().any(|l| l.starts_with("set +")),
+        "the version-log step must keep bash's exit-on-error"
+    );
     assert!(install < log, "the toolchain is logged after the install");
 
     for gate in [
@@ -1427,6 +1431,21 @@ fn test_ci_updates_installs_and_logs_in_order() {
         "runs-on: ${{ matrix.os }}",
     ] {
         assert!(live.contains(&line), "workflow must keep {line:?}");
+    }
+    // Nothing at any level -- workflow, job, matrix or step -- may skip or
+    // excuse a leg or a step.
+    for line in &live {
+        let key = line.trim_start_matches("- ");
+        for banned in ["if:", "continue-on-error:", "exclude:"] {
+            assert!(
+                !key.starts_with(banned),
+                "no {banned} may skip or excuse a leg or step: {line:?}"
+            );
+        }
+    }
+    // The file alone names the toolchain; both of these would outrank it.
+    for banned in ["RUSTUP_TOOLCHAIN", "rustup override"] {
+        assert!(!wf.contains(banned), "workflow must not use {banned:?}");
     }
 }
 
