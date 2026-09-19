@@ -29,6 +29,11 @@ itself, which remains [INT-0001](INT-0001-markdown-repo-context-bundle.md)'s.
   wherever the provider's plain HTTPS interface allows it.
 - Network and authentication failures produce a diagnostic on stderr and a
   non-zero exit, never a partial document on stdout.
+- Fetching a remote never waits on a person. Credential prompts and credential
+  helpers are disabled for the fetch, so a private or missing repository fails
+  within seconds instead of hanging on a login dialog.
+- Whatever is fetched to a temporary location is removed afterwards, whether
+  the run succeeded or failed.
 
 ## Rationale
 
@@ -46,6 +51,19 @@ pure-`std` shape if entangled with it.
   INT-0001 accepted deliberately, so it requires an explicit decision.
 - **Require the user to clone first and point MDeezl at the checkout.** This is
   the current behaviour and the reason this intent exists.
+- **For remotes: a shallow `git clone` into a temporary directory.** Selected
+  at the sprint 3 boundary, for the remote half.
+  - **It stays dependency-free.** Rust's standard library has no HTTPS client,
+    so the alternative is linking a TLS stack.
+  - **It works for every provider's plain HTTPS clone URL.**
+  - **It was measured with git 2.54:** a one-commit public repository cloned
+    in 0.9 s.
+  - **Failures are fast and clean.** With `GIT_TERMINAL_PROMPT=0` and the
+    credential helper disabled, a missing repository failed in 0.4 s (exit
+    128, "terminal prompts disabled") and left no directory behind.
+  - **Only `https://` and `http://` count as URLs.** Anything else is a path.
+    Git itself read `ftp:/weird` as an ssh address, so the tool must decide
+    what a URL is.
 
 ## Consequences
 
@@ -57,3 +75,8 @@ pure-`std` shape if entangled with it.
 
 ## Transition history
 - 2026-09-17: created as `proposed`; explicitly out of scope for sprint 0.
+- 2026-09-19: amended while `proposed`, by sprint 3 research. The desktop GUI
+  of [INT-0006](INT-0006-desktop-gui.md) takes a path *or URL*, so the remote
+  half is scheduled ahead of the git-ref half, which backlog T-103 keeps. The
+  measured clone mechanism was added under Alternatives. Two criteria were
+  added: no waiting on a person, and removal of the temporary copy.
