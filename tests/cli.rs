@@ -1491,3 +1491,66 @@ fn test_readme_documents_toolchain_policy() {
         "the update comes before the install; the install alone updates nothing"
     );
 }
+
+// ============ Sprint 3: library, URL sources, desktop app (INT-0006, INT-0002) ============
+
+/// T-001. `src/main.rs` only hands the arguments to the library.
+#[test]
+fn test_main_rs_only_delegates_to_cli() {
+    let main = repo_file("src/main.rs");
+    let code: Vec<&str> = main
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("//"))
+        .collect();
+    assert!(code.len() <= 3, "at most three code lines: {code:?}");
+    let joined = code.join("\n");
+    assert!(joined.contains("mdeezl::cli("), "{code:?}");
+    assert!(joined.contains("std::process::exit("), "{code:?}");
+    assert!(!code.iter().any(|l| l.starts_with("use ")), "{code:?}");
+    assert_eq!(joined.matches("fn ").count(), 1, "only fn main: {code:?}");
+}
+
+/// T-001. The library's document is the CLI's document, byte for byte, for
+/// every wrap mode with gitignore on and off. Neither side is isolated: the
+/// CLI child inherits this process's environment, so host git configuration
+/// reaches both equally.
+#[test]
+fn test_bundle_matches_cli_output() {
+    require_git!("test_bundle_matches_cli_output");
+    let dir = gitignore_fixture("lib-vs-cli");
+    let out = tmp_dir("lib-vs-cli-out");
+    let modes = [
+        (mdeezl::Wrap::Fence, "fence"),
+        (mdeezl::Wrap::Inline, "inline"),
+        (mdeezl::Wrap::None, "none"),
+    ];
+    for (wrap, flag) in modes {
+        for use_gitignore in [true, false] {
+            let file = out.join(format!("{flag}-{use_gitignore}.md"));
+            let mut cmd = Command::new(EXE);
+            cmd.arg(&*dir).args(["--wrap", flag, "-o"]).arg(&file);
+            if !use_gitignore {
+                cmd.arg("--no-gitignore");
+            }
+            let status = cmd.output().unwrap();
+            assert!(status.status.success(), "{}", stderr_of(&status));
+
+            let opts = mdeezl::Options {
+                root: dir.to_path_buf(),
+                wrap,
+                use_gitignore,
+                ..mdeezl::Options::default()
+            };
+            let bundle = mdeezl::bundle(&opts).unwrap();
+            assert!(
+                bundle.document.as_bytes() == fs::read(&file).unwrap(),
+                "library and CLI differ for --wrap {flag}, gitignore {use_gitignore}"
+            );
+            assert_eq!(
+                Some(bundle.name.as_str()),
+                dir.file_name().and_then(|n| n.to_str())
+            );
+        }
+    }
+}

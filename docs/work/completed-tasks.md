@@ -224,3 +224,32 @@
   test, all nine checked. fmt and clippy `-D warnings` are clean; 68 unit and
   54 end-to-end tests pass on rustc 1.98.1.
 - **Commit:** `22a4cdd75935c4fb894c33324c4bafbed05632a4`
+
+## T-001 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `src/lib.rs` (moved from `src/main.rs` with `git mv`),
+  `src/main.rs`, `tests/cli.rs`
+- **Summary:** The engine is now a library, so the desktop app can call it
+  in-process.
+  - **The thin binary.** `src/main.rs` is one `fn main` that exits with
+    `mdeezl::cli(std::env::args().skip(1))`.
+  - **The public surface.** It is `Options` (fields now `pub`), `Wrap`, `Sink`,
+    `Bundle`, `bundle` and `cli`.
+  - **`bundle`.** It returns the name, the document and the notices, and
+    prints nothing. The CLI's `run` prints each notice as `mdeezl: <notice>`,
+    then writes the sink, so stderr is unchanged.
+  - **`render_document`.** It keeps its signature, which the moved tests use,
+    and delegates to the new `render_titled`.
+  - **Imports.** `env` and `process`, used outside tests only by the old
+    `main`, carry `cfg_attr(not(test), allow(unused_imports))` until T-002.
+- **Verification:**
+  - **New tests:** `test_bundle_returns_notices_as_data` (unit, appended to
+    `mod tests`), `test_main_rs_only_delegates_to_cli`, and
+    `test_bundle_matches_cli_output`. The last checks all three wrap modes,
+    with gitignore on and off, with neither side isolated.
+  - **Results:** 69 unit and 56 end-to-end tests pass. That includes all 122
+    earlier tests, unedited.
+  - **Gates:** fmt and clippy `-D warnings` are clean.
+- **Commit:** PENDING

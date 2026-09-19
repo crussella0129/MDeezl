@@ -2,7 +2,7 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0006
-- **State:** planned
+- **State:** active
 - **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-003 GUI crate, window and fields](../sprints/s3/sprint-plans/build-plan.md#t-003-gui-crate-window-and-fields)
 - **Completion evidence:** none
 - **Code evidence:** none
@@ -187,3 +187,4 @@ stack to a project that has so far had no runtime dependencies at all.
   - The `bundle.md` fallback name and its reason are recorded.
   - The `logic`/`tick` wording is made exact.
   - The stall bound is scoped to transfers that stall once connected.
+- 2026-09-19: `planned → active`; the sprint 3 Build Phase began, with T-001.
