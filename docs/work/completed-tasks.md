@@ -374,3 +374,34 @@
        the home folder, and typing would append to that.
   - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
 - **Commit:** `a5c6a1556f8f480cf77596d22db098851487de24`
+
+## T-005 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `.github/workflows/sprint-loops-ci.yml`, `tests/cli.rs`
+- **Summary:** The CI gates now cover the whole workspace, the desktop app
+  included.
+  - **Gates.** `cargo fmt --all --check` and
+    `cargo clippy --workspace --all-targets -- -D warnings`.
+    `cargo test --all -- --nocapture` already covered the workspace.
+  - **Nothing else changed.** No step or key was added or removed.
+  - **The guard test changed in the same commit.** Sprint 2's
+    `test_ci_updates_installs_and_logs_in_order` pins the gate lines, and now
+    requires the new ones.
+- **Verification:**
+  - **Mutation check.** It was re-run against the new lines: all 41 changes
+    fail their named test with the intended message. They are the 39 sprint 2
+    rows, plus two restoring the pre-workspace fmt and clippy lines, which
+    fail with `workflow must have the one-line step "run: cargo fmt --all
+    --check"` and the clippy equivalent.
+  - **Pin.** Under `channel = "1.96.0"`, the full workspace suite passes on
+    1.96.0 (78 + 61 + 22), and the three pass-mutations pass.
+  - **Line endings.** Before the first run, rows 36 and 38 were reported "NOT
+    CAUGHT". Earlier Python edits had left `README.md` and 30 Book files with
+    CRLF working copies, while the index was LF, so the script's LF patterns
+    changed nothing. The working copies were restored from the index as LF,
+    and both rows then failed as intended.
+  - **CI.** The observation on both legs is recorded in the sprint 3 test
+    report.
+- **Commit:** PENDING

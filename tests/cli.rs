@@ -1414,9 +1414,10 @@ fn test_ci_updates_installs_and_logs_in_order() {
     );
     assert!(install < log, "the toolchain is logged after the install");
 
+    // Sprint 3 (T-005): the gates cover the whole workspace, desktop app included.
     for gate in [
-        "cargo fmt --check",
-        "cargo clippy --all-targets -- -D warnings",
+        "cargo fmt --all --check",
+        "cargo clippy --workspace --all-targets -- -D warnings",
         "cargo test --all -- --nocapture",
     ] {
         assert!(
