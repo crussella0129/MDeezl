@@ -11,3 +11,4 @@
 - **Summary:** Make local gates predict CI under the policy "track stable by default, pin when needed": a rust-toolchain.toml plus CI steps that update stable, install any pin, and log the toolchain used.
 - **Intents:** [INT-0005](../../intents/INT-0005-reproducible-toolchain.md) (planned, advanced by this sprint); [INT-0001](../../intents/INT-0001-markdown-repo-context-bundle.md) (realized, constrained — two-OS CI must not regress).
 - **Completion evidence:** INT-0005 realized: rust-toolchain.toml tracks stable, CI updates/installs/logs its toolchain; 122 tests + 39 mutations; CI 35426964502 green on both legs at 56bd757; pinned CI (PR #4) ran 1.96.0 on both legs; test critique clean after 4 rounds
+- **Checkpoint:** https://github.com/crussella0129/MDeezl/pull/5
