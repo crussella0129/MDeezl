@@ -2,12 +2,12 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0005
-- **State:** active
+- **State:** realized
 - **Work evidence:** [Sprint 2 build plan](../sprints/s2/sprint-plans/build-plan.md), [T-001 toolchain file and CI steps](../sprints/s2/sprint-plans/build-plan.md#t-001-toolchain-file-and-ci-steps)
-- **Completion evidence:** none
-- **Code evidence:** none
+- **Completion evidence:** [T-001 completion](../work/completed-tasks.md#t-001-sprint-2), [T-002 completion](../work/completed-tasks.md#t-002-sprint-2)
+- **Code evidence:** [rust-toolchain.toml](../../rust-toolchain.toml), [CI workflow](../../.github/workflows/sprint-loops-ci.yml), [tests/cli.rs](../../tests/cli.rs)
 - **Test evidence:** [Sprint 2 test report](../sprints/s2/sprint-tests/test-report.md), [unit](../sprints/s2/sprint-tests/unit-tests.md), [integration](../sprints/s2/sprint-tests/integration-tests.md), [end-to-end](../sprints/s2/sprint-tests/e2e-tests.md)
-- **Documentation evidence:** none
+- **Documentation evidence:** [README.md](../../README.md)
 
 ## Intent
 
@@ -178,3 +178,11 @@ stable was 1.98.1.
   `clean`. Lag correction in CI was not exercised, because every update step
   reported `unchanged`. That is recorded as an open observation under
   Consequences and owned by backlog T-106.
+- 2026-09-19: `active → realized` at the sprint 2 Loop Phase. All eight
+  acceptance criteria have test, CI-log or inspection evidence in the sprint 2
+  test report, including the consent-gated pinned CI half, which was the plan's
+  condition for realization. The one unexercised part is lag correction in CI:
+  every update step reported `unchanged`, because the runner images already
+  carried 1.98.1. Its outcome — CI runs the true current stable — held in every
+  run. The mechanism rests on one host measurement, and the gap is carried as
+  the open observation under Consequences, owned by backlog T-106.
