@@ -404,4 +404,4 @@
     and both rows then failed as intended.
   - **CI.** The observation on both legs is recorded in the sprint 3 test
     report.
-- **Commit:** PENDING
+- **Commit:** `2b686259f84d4004a2c4805dbf34daea7f347549`
