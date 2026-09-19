@@ -1303,6 +1303,14 @@ fn toml_unquote(v: &str) -> Option<&str> {
 #[test]
 fn test_toolchain_file_declares_channel_and_components() {
     let toml = repo_file("rust-toolchain.toml");
+    // rustup prefers a legacy extension-less file in the same directory, which
+    // would silently void a pin written in the .toml.
+    assert!(
+        !Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("rust-toolchain")
+            .exists(),
+        "no legacy rust-toolchain file may outrank rust-toolchain.toml"
+    );
     let table = toml_table(&toml, "toolchain");
     assert!(!table.is_empty(), "a non-empty [toolchain] table");
 
