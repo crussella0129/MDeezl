@@ -62,7 +62,9 @@ pure-`std` shape if entangled with it.
     It runs with:
     - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`,
       `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
-    - `GIT_ASKPASS`, `SSH_ASKPASS` and the repository-local variables removed.
+    - `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_HTTP_LOW_SPEED_LIMIT`,
+      `GIT_HTTP_LOW_SPEED_TIME` and the repository-local variables removed. git
+      documents that the two low-speed variables override the `-c` settings.
 
     Why each part is needed:
     - **Terminal prompts are only one of git's four prompt routes.** The
@@ -75,11 +77,13 @@ pure-`std` shape if entangled with it.
       enough. Measured: a `* text=auto` repository still checked out CRLF on
       Windows. Adding `core.eol=lf` checks text files out with LF everywhere,
       and a file with an explicit `eol` attribute still follows it.
-    - **A stalled server cannot hang it.** git sets no stall timeout by
-      default. Measured: a local server that accepted and never answered held
+    - **A transfer that stalls once connected cannot hang it.** git sets no
+      stall timeout by default. Measured: a local server that accepted and never answered held
       a clone until an outside `timeout` killed it. With the low-speed
       settings (1 byte/s, over a 5-second window in the measurement), it
       failed in 5.2 s with "Operation too slow". Production uses 30 seconds.
+      A stalled TCP connect or TLS handshake falls under curl's own connect
+      handling, which was not measured.
     - **No LFS downloads.** `GIT_LFS_SKIP_SMUDGE=1` leaves LFS-tracked files as
       their small pointer text. A host's git-lfs setup therefore cannot pull
       large objects into a text bundle, or fail the clone on an exhausted quota.
@@ -171,3 +175,8 @@ pure-`std` shape if entangled with it.
   stalled server fails the fetch instead of hanging it; this was measured
   first. The GUI consequence now describes the deferred close, and a
   cross-reference was fixed.
+- 2026-09-19: amended while `planned`, from the fifth sprint 3 plan critique.
+  - The clone also removes `GIT_HTTP_LOW_SPEED_LIMIT` and
+    `GIT_HTTP_LOW_SPEED_TIME`, which git lets override the stall settings.
+  - The stall bound is scoped to transfers that stall once connected, which is
+    what was measured.

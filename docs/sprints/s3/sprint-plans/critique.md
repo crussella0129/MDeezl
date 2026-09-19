@@ -11,6 +11,7 @@ changed.
 | 2 | `proceed-with-caveats` | 10 |
 | 3 | `proceed-with-caveats` | 4 |
 | 4 | `proceed-with-caveats` | 6 |
+| 5 | `proceed-with-caveats` | 5 |
 
 Round 2 verified the round-1 resolutions against the revised plans, the
 intents and the crate sources, and raised ten new concerns (R2 C-001 to
@@ -19,7 +20,16 @@ fixes held and that no round-1 fix had regressed, and raised four concerns
 (R3 C-001 to C-004). Round 4 confirmed that the CancelClose design works in
 eframe 0.36.2, traced through `epi_integration.rs`, `egui-winit` and
 `glow_integration.rs`. It found no regressions and complete traceability, and
-raised six narrower concerns (R4 C-001 to C-006), which come last.
+raised six narrower concerns (R4 C-001 to C-006). Round 5 verified those
+resolutions, and confirmed from the egui and eframe sources that the logic-path
+design, and `Context::run_logic` in a test, are feasible. It raised five
+tightenings (R5 C-001 to C-005), which come last.
+
+**Why no sixth round.** Every round-5 change tightens a test or a sentence, or
+removes two more environment variables from a command whose shape is already
+pinned. None adds a new behaviour for review, and the concern count and
+severity fell in every round. The plans are locked on round 5's
+`proceed-with-caveats`, with every concern below resolved.
 
 ## Concerns
 
@@ -384,6 +394,56 @@ raised six narrower concerns (R4 C-001 to C-006), which come last.
   - **INT-0002's consequence** now describes the deferred close, and its cross-reference names the display-form bullet.
   - **The two traceability rows** now cite INT-0002's real criteria and INT-0006 "Documented".
   - **The manual checks** use `https://github.com/git/git`, whose shallow clone takes several seconds. The measured duration will be recorded.
+
+### R5 C-001: Environment variables could switch the stall limit off
+- **Where:** T-002 clone and stall clauses
+- **Quote:** "`GIT_ASKPASS`, `SSH_ASKPASS` and the 15 repository-local git variables removed"
+- **Failure mode:** missing-risk
+- **Why it matters:** git documents that `GIT_HTTP_LOW_SPEED_LIMIT` and `GIT_HTTP_LOW_SPEED_TIME` override `http.lowSpeed*`.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. Both are removed from the clone's environment, `test_clone_command_is_hardened` asserts their removal, and INT-0002 records it.
+
+### R5 C-002: The `cfg(test)` low-speed override had to be per-thread
+- **Where:** `test_stalled_server_fails_the_fetch` and `test_clone_command_is_hardened`
+- **Quote:** "through a `cfg(test)`-only override"
+- **Failure mode:** hidden-dep
+- **Why it matters:** a process-wide override would race with the parallel pinning test.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Mechanism.** The window is a production constant of 30. Under `cfg(test)` it is read through a thread-local that defaults to that constant, the `GIT_SPAWNS` pattern.
+  - **Scope.** Only the stalled test lowers it, on its own thread.
+
+### R5 C-003: The logic path was tested through a hand-built mirror, and two repaint claims were untested
+- **Where:** T-004 `tick`/`logic` clause; the GUI harness
+- **Quote:** "whose closure calls `app.tick(ui.ctx())` and then `app.ui(ui)`. That mirrors eframe"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** an `eframe::App::logic` that forgot to call `tick` would pass, and neither the worker's wake-up nor the repaint under `run_logic` was checked.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Real `logic`.** The GUI tests use `Harness::new_eframe`, which calls the real `logic` and then `ui`. That needs `egui_kittest`'s `eframe` feature, measured at +1 crate (143 → 144), and `test_gui_manifest_dependencies` pins it.
+  - **Repaint claims.** `test_close_deferral_runs_in_logic_alone` records `set_request_repaint_callback` calls. It asserts the tick's request of at most 100 ms, and the worker's zero-delay wake-up with no tick run.
+
+### R5 C-004: The `bundle` fallback name existed only in sprint prose
+- **Where:** T-004 output-name clause; INT-0006
+- **Quote:** "In those cases it **SHALL** be `bundle`."
+- **Failure mode:** intent-drift
+- **Why it matters:** it departs from INT-0006's "`<name>` is the folder's or repository's name" without a record.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. INT-0006's Consequences record the `bundle.md` fallback, which cases trigger it, and why: the file always stays inside the output folder.
+
+### R5 C-005: Smaller gaps
+- **Where:** the status test; the help and README needles; the gated-job tests; the Harness bullet; INT-0006 wording
+- **Quote:** "*captured when Generate was activated*"; "`git`"; "Every test holds the app through `new_ui_state`"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** there was an untested capture, a vacuous needle, gated jobs writing into the runner's home folder, an inaccurate "every test", and a stall claim wider than its evidence.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **The status test** edits the source mid-job and asserts that the label holds.
+  - **The help and README needles** are URL-specific: `shallow`, `temporary`, `removed`, and the credential phrases.
+  - **Every gated-job test** sets a test-owned output folder.
+  - **The Harness bullet** names its one exception.
+  - **INT-0006** now says `eframe::App::logic` calls `tick`.
+  - **The stall bound is scoped** in both intents and T-002 to transfers that stall once connected. A stalled connect or TLS handshake is left to curl's connect handling, which was not measured.
 
 ## Confidence
 proceed-with-caveats

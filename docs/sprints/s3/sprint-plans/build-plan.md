@@ -71,7 +71,7 @@
   - **WHEN** `mdeezl::is_url(s)` is called, **THEN** it **SHALL** return true exactly when `s` begins with `https://`, `http://` or `file://`. **WHEN** the source argument is not a URL — including `ftp:/weird`, `git@host:x/y` and `C:\x` — **THEN** mdeezl **SHALL** treat it as a local path, as before. Detection **SHALL** use the argument's text (`to_str`), never path components.
   - **WHEN** a URL source is fetched, **THEN** the clone command **SHALL** be exactly `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 clone --depth 1 --quiet -- <url> <dest>`. It **SHALL** run with:
     - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
-    - `GIT_ASKPASS`, `SSH_ASKPASS` and the 15 repository-local git variables removed;
+    - `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_HTTP_LOW_SPEED_LIMIT`, `GIT_HTTP_LOW_SPEED_TIME` and the 15 repository-local git variables removed. git lets the two low-speed variables override the `-c` settings, so they are removed;
     - `<dest>` as `<base>/mdeezl-<pid>-<n>/<repo-name>`, where `<base>` is `std::env::temp_dir()` in production.
   - **WHEN** `<repo-name>` is derived from a URL, **THEN** it **SHALL** be derived as follows:
     1. take the URL's path: everything after the scheme's `//` and the authority up to the next `/`, with any `?…` query or `#…` fragment dropped;
@@ -81,7 +81,7 @@
     The name is used as a path component, so it can never leave its folder.
   - **WHEN** a URL is shown — in the document heading, on stderr or in the GUI — **THEN** it **SHALL** be the display form, with any `user[:password]@` userinfo removed from its authority. The clone itself uses the URL as given.
   - **WHEN** the clone succeeds, **THEN** the document **SHALL** be the clone's bundle, with heading `# <display-url>` and tree root line `<repo-name>/`, and `Bundle.name` **SHALL** be `<repo-name>`. Line endings **SHALL** be the same on every OS: `core.autocrlf=false` and `core.eol=lf` check text files out with LF, and a file with an explicit `eol` attribute follows it.
-  - **WHEN** an HTTP(S) transfer moves less than 1 byte per second for 30 seconds, **THEN** the fetch **SHALL** fail rather than wait. Measured: without the setting, a server that accepts and never answers held the clone until an outside `timeout` killed it; with a 5-second window it failed in 5.2 s with "Operation too slow".
+  - **WHEN** an HTTP(S) transfer, once connected, moves less than 1 byte per second for 30 seconds, **THEN** the fetch **SHALL** fail rather than wait. Measured: without the setting, a server that accepts and never answers held the clone until an outside `timeout` killed it; with a 5-second window it failed in 5.2 s with "Operation too slow".
   - **WHEN** the fetch fails — a missing, unauthorised, unreachable or stalled repository, a protocol outside the allow-list, or git not found — **THEN** the CLI **SHALL** exit 1, with empty stdout and one stderr line `mdeezl: could not fetch <display-url>: <reason>`. `<reason>` **SHALL** be one of:
     - git's first stderr line beginning `fatal: `, with that prefix removed;
     - if no such line exists, git's last non-empty stderr line;
@@ -99,6 +99,8 @@
     The README's exit-code line **SHALL** count a failed fetch under `1`. Its "Not yet" section **SHALL** no longer list remote repositories; it keeps the git-ref half and INT-0003.
 - **Notes:**
   - The fetch is a private `fetch(url, base)`, so unit tests pass their own base folder. `bundle` passes `temp_dir()`.
+  - The low-speed window is a constant, 30. Under `cfg(test)` it is read through a thread-local that defaults to that constant, the same pattern as `GIT_SPAWNS`. Only `test_stalled_server_fails_the_fetch` lowers it, on its own thread, so the parallel `test_clone_command_is_hardened` always sees 30.
+  - The stall bound was measured for a server that accepts the connection and then stays silent. A stalled TCP connect or TLS handshake is governed by curl's own connect handling, which was not measured.
   - Under `cfg(test)`, the clone gets the same config isolation as `git_ignored`.
   - Stdin is null. `Command` does not expose stdin, so that is left to code review.
   - With `GIT_LFS_SKIP_SMUDGE=1`, an LFS-tracked file is bundled as its small pointer text, and no LFS object is downloaded. This is git-lfs's documented behaviour, and INT-0002 records it.
@@ -117,7 +119,7 @@
     - `eframe` 0.36, with `default-features = false` and features exactly `glow`, `default_fonts`, `accesskit`, `x11` and `wayland`;
     - `rfd` 0.17, with `default-features = false` and features exactly `xdg-portal`.
 
-    Its dev-dependencies **SHALL** be exactly `egui_kittest`. The root `[dependencies]` table stays empty.
+    Its dev-dependencies **SHALL** be exactly `egui_kittest`, with the single feature `eframe`, which measured at one more crate. The root `[dependencies]` table stays empty.
   - **WHEN** the app is shown, **THEN** it **SHALL** present exactly these interactive widgets:
     - two text fields: one labelled `Source` and hinted `Folder path or https:// URL`, and one labelled `Output folder`;
     - three buttons: `Browse…` for each field, and `Generate`;
@@ -156,7 +158,7 @@
     - the worker **SHALL** call `request_repaint` on a clone of the `egui::Context` once it has sent its result.
 
     The window therefore shows the result without waiting for input, minimised or not.
-  - **WHEN** eframe drives the app, **THEN** three things **SHALL** live in one inherent `App::tick(&egui::Context)`, which `eframe::App::logic` calls: polling for the worker's result, the close deferral, and the repaint request. eframe runs `logic` even while the window is minimised or hidden, and then runs no `ui` pass. Drawing stays in `ui`.
+  - **WHEN** eframe drives the app, **THEN** three things **SHALL** live in one inherent `App::tick(&egui::Context)`, which `eframe::App::logic` calls: polling for the worker's result, the close deferral, and the repaint request. eframe runs `logic` even while the window is minimised or hidden, and then runs no `ui` pass. Drawing stays in `eframe::App::ui`. The GUI tests drive the app through `Harness::new_eframe`, which calls the real `logic` and then the real `ui`, as eframe does.
   - **WHEN** the worker's result channel disconnects without a result, as when the job panics, **THEN** the tick **SHALL** end the job, with the status `The job stopped unexpectedly`. The app **SHALL** stop working, and no output file **SHALL** be written.
   - **WHEN** the window's close is requested while the app is working, **THEN** the app **SHALL**:
     - send `ViewportCommand::CancelClose`;

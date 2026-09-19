@@ -108,6 +108,11 @@ stack to a project that has so far had no runtime dependencies at all.
   `wayland` feature glutin cannot open that window.
 - **The window needs OpenGL 2+.** That comes with the glow renderer. A machine
   without GPU drivers may fail to open it; the wgpu renderer is the remedy.
+- **Some sources are written as `bundle.md`.** A name that is empty, `.` or
+  `..`, or that contains `/`, `\` or `:`, is written as `bundle.md`. That
+  covers a bundled filesystem root, whose name falls back to the whole path,
+  and a Linux folder with `:` in its name. The file therefore always stays
+  inside the output folder.
 - **Generate replaces an existing `<name>.md`.** The document is written to a
   temporary sibling file and renamed over the target in one step, so a failed
   run never damages an earlier good file.
@@ -116,14 +121,16 @@ stack to a project that has so far had no runtime dependencies at all.
   when the job ends, the window stays responsive, and it closes itself when
   the worker finishes, so the engine's temporary clone is removed first. The
   app's drop also joins the worker, as a backstop.
-- **How long a close can wait.** A fetch that stalls is cut off by the
-  engine's 30-second low-speed limit. A fetch that keeps moving slowly, or a
+- **How long a close can wait.** A fetch whose transfer stalls once connected
+  is cut off by the engine's 30-second low-speed limit. A stalled connect or
+  TLS handshake falls under curl's own connect handling. A fetch that keeps moving slowly, or a
   very large local bundle, can keep the window open for as long as it takes.
   Ending the process from outside, for example with Task Manager, then leaves
   the temporary clone behind, as Ctrl+C does in the CLI.
-- **The polling lives in `App::logic`.** Result polling, the close deferral and
-  the repaint request run in eframe's `logic` hook, which eframe calls even
-  while the window is minimised. A minimised window still closes, and still
+- **The polling lives in `eframe::App::logic`.** Result polling, the close
+  deferral and the repaint request run in the app's own `tick`, which
+  eframe's `logic` hook calls. eframe calls that hook even while the window is
+  minimised. A minimised window still closes, and still
   collects its result.
 - **Every CLI build now resolves the GUI's dependency graph.** Cargo keeps one
   lockfile per workspace, so building or installing the `mdeezl` crate on a
@@ -176,3 +183,7 @@ stack to a project that has so far had no runtime dependencies at all.
     limit, and otherwise the job's own length.
   - It records that the app's polling lives in `logic`, so a minimised window
     behaves the same.
+- 2026-09-19: amended while `planned`, from the fifth sprint 3 plan critique.
+  - The `bundle.md` fallback name and its reason are recorded.
+  - The `logic`/`tick` wording is made exact.
+  - The stall bound is scoped to transfers that stall once connected.

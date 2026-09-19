@@ -79,19 +79,19 @@
 - `test_clone_command_is_hardened`: reads `Command::get_args` and `get_envs`.
   - The arguments are exactly the planned `-c …` and `clone …` list, including `core.eol=lf`, `http.lowSpeedLimit=1` and `http.lowSpeedTime=30`, and end `-- <url> <dest>`.
   - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` are set.
-  - `GIT_ASKPASS`, `SSH_ASKPASS` and all 15 local variables are set to be removed.
+  - `GIT_ASKPASS`, `SSH_ASKPASS`, `GIT_HTTP_LOW_SPEED_LIMIT`, `GIT_HTTP_LOW_SPEED_TIME` and all 15 local variables are set to be removed.
 - `test_fetch_rejects_protocol_outside_allow_list`: `fetch` with `ssh://127.0.0.1/x` returns `Err`, and the reason names the transport as not allowed. No network is reached: the allow-list refuses it first.
 - `test_fetch_file_url_bundles_the_clone`: uses a committed fixture repository, with an identity passed through `-c`. It holds a `.gitattributes` of `* text=auto` and an LF text file, committed with `core.autocrlf=false`, plus an untracked file beside them. `fetch` runs against a base folder owned by the test.
   - The bundle's heading is `# <url>` and its tree root `<name>/`.
   - It holds the committed file's text **byte for byte with LF**, on Windows too, and not the untracked file.
   - Once the clone is dropped, the base folder is empty.
-- `test_stalled_server_fails_the_fetch`: a local `TcpListener` accepts connections and never answers. `fetch` of `http://127.0.0.1:<port>/x.git` runs with the low-speed window shortened to 3 s through a `cfg(test)`-only override, and must return `Err` naming "Operation too slow" within 15 s. The test-owned base folder is empty afterwards. The production window of 30 s is asserted by `test_clone_command_is_hardened`.
+- `test_stalled_server_fails_the_fetch`: a local `TcpListener` accepts connections and never answers. `fetch` of `http://127.0.0.1:<port>/x.git` runs with the low-speed window lowered to 3 s through the `cfg(test)` thread-local, on its own test thread only, and must return `Err` naming "Operation too slow" within 15 s. The test-owned base folder is empty afterwards. The production window of 30 s is asserted by `test_clone_command_is_hardened`.
 - `test_fetch_bad_url_errs`: a `file://` URL to a missing path returns `Err`. Its text begins `could not fetch`, and contains `does not appear to be a git repository`, which is git's first `fatal:` line, not its trailing boilerplate. The test-owned base folder is empty afterwards.
 - `test_git_commands_set_create_no_window` (Windows only): on Windows the flag is applied by one shared helper. This test calls that helper on a `Command`, then spawns `git --version` through it, which proves the flagged process still runs and returns output. Elsewhere it prints SKIP.
 
 ### T-003 and T-004 unit tests (`gui`)
 - **Intent:** [INT-0006](../../../intents/INT-0006-desktop-gui.md)
-- `test_gui_manifest_dependencies`: parses `gui/Cargo.toml`.
+- `test_gui_manifest_dependencies`: parses `gui/Cargo.toml`, and also checks that `egui_kittest` carries exactly the feature `eframe`.
   - `[dependencies]` names exactly `mdeezl`, `eframe` and `rfd`.
   - `eframe` has `default-features = false` and exactly the five planned features.
   - `rfd` has `default-features = false` and exactly `xdg-portal`.
@@ -117,7 +117,7 @@
   - The fixture is a git repository with a `.gitignore`, and the test runs through each wrap mode with gitignore on and off.
   - `mdeezl::bundle(&opts).document` equals the bytes of the CLI's `-o` file for the same options, and `name` equals the fixture folder's name.
   - **Both sides run under the same environment.** The CLI child inherits the test process's environment unchanged, with no `isolate()` on either side, so host git configuration affects both equally.
-- `test_generate_writes_engine_bytes` (`gui/tests/app.rs`, egui_kittest). The harness is `Harness::new_ui_state` with the real `App`.
+- `test_generate_writes_engine_bytes` (`gui/tests/app.rs`, egui_kittest). The harness is `Harness::new_eframe` with the real `App`.
   1. Type a fixture path and a temporary output folder into the fields, and pick `inline`.
   2. Click `Generate`.
   3. Poll with `harness.step()` plus a 10 ms sleep, until the app stops working or 10 s pass.
@@ -147,8 +147,8 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - The temp folder is empty afterwards.
   - Localhost only, so no network is used.
 - `test_cli_url_without_git_exits_1`: an empty `PATH` and a `file://` URL give exit 1, empty stdout, and stderr ending `git was not found on PATH`.
-- `test_cli_help_documents_url_sources`: `--help` contains `URL`, `https://`, `git`, `temporary`, `never prompts for credentials` and `credential helper`.
-- `test_readme_documents_url_sources`: the README contains the same.
+- `test_cli_help_documents_url_sources`: `--help` contains `URL`, `https://`, `shallow`, `temporary`, `removed`, `never prompts for credentials` and `credential helper`. These needles are URL-specific. The earlier help text already said "git on your PATH", so a bare `git` would pass vacuously.
+- `test_readme_documents_url_sources`: the README contains the same URL-specific needles.
   - Its exit-code paragraph mentions a failed fetch.
   - Its "Not yet" section, with whitespace normalised to single spaces, does **not** contain `remote repositor`, so "repository" and "repositories" are both caught.
 - `test_live_github_clone` (`#[ignore]`, run by hand in the Test Phase):
@@ -156,9 +156,9 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - `https://github.com/octocat/definitely-not-a-repo-mdeezl` fails within 10 s, with exit 1 and no prompt;
   - the temp folder is empty after both.
 - **GUI** (`gui/tests/app.rs`, egui_kittest, headless on both legs).
-  - **Harness.** Every test holds the app through `new_ui_state`, whose closure calls `app.tick(ui.ctx())` and then `app.ui(ui)`. That mirrors eframe, where `logic` runs before `ui`.
+  - **Harness.** Every kittest GUI test holds the app through `Harness::new_eframe`, which calls the real `eframe::App::logic` and then `eframe::App::ui`, exactly as eframe does. A test that forgets to wire `tick` into `logic` therefore fails. `test_close_deferral_runs_in_logic_alone` is the one exception, and uses a bare `egui::Context`.
   - **Waiting.** Tests wait with the `step()` polling loop, never `run()`: `run()` panics while the app keeps requesting repaints.
-  - **Working state.** Tests that need it inject a **gated job**, which blocks until the test releases a channel.
+  - **Working state.** Tests that need it inject a **gated job**, which blocks until the test releases a channel. Every gated-job test sets a test-owned output folder, so a released job never writes into the runner's home folder.
   - `test_app_has_exactly_the_controls`:
     - `query_all_by_role` counts exactly 2 `TextInput`, 3 `Button`, 3 `RadioButton` and 1 `CheckBox`;
     - the labels `MDeezl`, `Source`, `Output folder`, `fence`, `inline`, `none`, `Respect .gitignore` and `Generate` are found;
@@ -179,11 +179,13 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
     - **Close sent.** After release, each frame's root commands are checked until one contains `Close`, within the 10 s deadline.
     - **Echo not cancelled.** Then `ViewportEvent::Close` is pushed again, as eframe would echo the app's own `Close`. After one `step()` there is no `CancelClose`.
     - **Idle.** With no job running, a pushed close produces no `CancelClose`.
-  - `test_close_deferral_runs_in_logic_alone`: an `App` with a gated job and an `egui::Context`. `ctx.run_logic(&raw_input, |ctx| app.tick(ctx))` is called with a root-viewport `ViewportEvent::Close` in the input, and no `ui` pass is run.
+  - `test_close_deferral_runs_in_logic_alone`: an `App` with a gated job and an `egui::Context`, with a `set_request_repaint_callback` recording each `RequestRepaintInfo`. `ctx.run_logic(&raw_input, |ctx| app.tick(ctx))` is called with a root-viewport `ViewportEvent::Close` in the input, and no `ui` pass is run.
     - The returned `LogicOutput.viewport_commands` for the root contain `CancelClose`.
-    - After release, a later `run_logic` returns `Close`.
+    - The callback has recorded a repaint request with a delay of at most 100 ms.
+    - After release, **with no tick run**, the callback records a zero-delay request: the worker's wake-up.
+    - A later `run_logic` returns `Close`.
   - `test_worker_panic_ends_job_with_error`: an injected job that panics. The polling loop sees the status `The job stopped unexpectedly`, `is_working()` false, and an empty output folder.
-  - `test_status_names_fetching_or_bundling`: with a gated job, a local source shows `Bundling…` and a `file://` source shows `Fetching…`.
+  - `test_status_names_fetching_or_bundling`: with a gated job, a local source shows `Bundling…` and a `file://` source shows `Fetching…`. Editing the source field to the other kind mid-job leaves the label unchanged, because the label follows the source captured at Generate.
   - `test_generate_shows_notices`: the real job on a fixture that is not a git work tree gives a status containing `Wrote` and `gitignore filtering skipped:`.
   - `test_failed_job_keeps_existing_output`, two cases:
     1. `<out>/<name>.md` is pre-seeded with a sentinel, then a job returns `Err`. The status shows the error, the sentinel is unchanged, and no `.mdeezl-tmp` file remains.
