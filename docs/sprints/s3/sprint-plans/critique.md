@@ -1,9 +1,18 @@
 # Plan Critique — Sprint 3
 
-Round 1 of the read-only plan critic, from the installed bundle's
+Read-only plan critic rounds, from the installed bundle's
 `prompts/plan-critic.md`. The primary agent's resolution follows each concern.
 Where a fix rests on a measurement, the measurement was taken before the plan
 changed.
+
+| Round | Verdict | Concerns |
+|-------|---------|----------|
+| 1 | `block` | 16 |
+| 2 | `proceed-with-caveats` | 10 |
+
+Round 2 verified the round-1 resolutions against the revised plans, the
+intents and the crate sources, and raised ten new concerns (R2 C-001 to
+C-010). They follow the round-1 concerns.
 
 ## Concerns
 
@@ -164,5 +173,99 @@ changed.
 - **Suggested response:** fix-in-plan
 - **Resolution:** fixed. T-003 is now the crate, window and fields. The new T-004 is Generate: the worker, status and safe write. The old T-004 to T-006 are renumbered T-005 to T-007.
 
+### R2 C-001: The failure-reason rule gives a useless message for `file://`
+- **Where:** T-002 fetch-failure clause; `test_fetch_bad_url_errs`
+- **Quote:** "`<reason>` **SHALL** be git's last non-empty stderr line without a leading `fatal: `"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** a missing repository's last stderr line is "and the repository exists.", and the planned test checked only the prefix.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. The reason is git's first `fatal: ` line with the prefix removed, falling back to the last non-empty line. Measured: the first line is `'C:/definitely-missing-mdeezl-xyz' does not appear to be a git repository`. `test_fetch_bad_url_errs` now asserts that text.
+
+### R2 C-002: `core.autocrlf=false` does not keep line endings the same across OSes
+- **Where:** T-002 success clause; INT-0002 Alternatives
+- **Quote:** "The committed files' bytes are as committed, because `core.autocrlf=false`."
+- **Failure mode:** intent-drift
+- **Why it matters:** `core.eol` defaults to `native`, so `* text=auto` repositories check out CRLF on Windows.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Measured:** a `* text=auto` fixture cloned with `autocrlf=false` checked out `one\r\ntwo\r\n` on Windows; adding `-c core.eol=lf` gave `one\ntwo\n`.
+  - **Plan and intent:** the command gains `core.eol=lf`, and the clause and INT-0002 now say text files check out with LF on every OS, while an explicit `eol` attribute still applies.
+  - **Test:** `test_fetch_file_url_bundles_the_clone` now compares exact bytes on a `* text=auto` fixture.
+
+### R2 C-003: Closing the GUI during a fetch leaves the clone behind
+- **Where:** T-002 cleanup clause; T-004
+- **Quote:** "**WHEN** a fetch ends, successful or not, **THEN** its `mdeezl-<pid>-<n>` directory **SHALL** no longer exist."
+- **Failure mode:** missing-risk
+- **Why it matters:** returning from `main` kills the worker before its guard runs.
+- **Suggested response:** fix-in-plan or defer-with-rationale
+- **Resolution:** fixed for the GUI. The app's `Drop` joins its worker, which `test_dropping_app_waits_for_worker` checks, and a manual check closes the window mid-fetch. CLI Ctrl+C is deferred with rationale: INT-0002's Consequences record that an interrupted CLI run can leave its temporary clone behind.
+
+### R2 C-004: Git LFS smudging is inherited by the clone
+- **Where:** T-002 clone clause
+- **Quote:** the exact clone command
+- **Failure mode:** missing-risk
+- **Why it matters:** a host's git-lfs setup would download LFS objects, only for them to be elided, or fail the clone on an exhausted quota.
+- **Suggested response:** defer-with-rationale or fix-in-plan
+- **Resolution:** fixed. The clone sets `GIT_LFS_SKIP_SMUDGE=1`, so LFS files are bundled as pointer text; the command test asserts it. This is git-lfs's documented behaviour. It was not measured against a live LFS repository, and the test report will say so. INT-0002 records the consequence.
+
+### R2 C-005: The `<repo-name>` rule contradicted its test and allowed unsafe names
+- **Where:** T-002 repo-name clause; `test_repo_name`
+- **Quote:** "the last non-empty `/`-separated segment"
+- **Failure mode:** EARS-vague
+- **Why it matters:** applied to the whole URL, `https://host/` yielded `host`, and `a\..\..\x` could escape the output folder on Windows.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. The rule now works on the URL's path, after the authority, with the query and fragment dropped. `.`, `..`, and any segment containing `\`, `:`, `?` or `#`, become `repository`. `test_repo_name` gains those rows, and INT-0002 records the rule.
+
+### R2 C-006: Credentials embedded in a URL are copied into the output
+- **Where:** T-002 success and failure clauses
+- **Quote:** "with heading `# <url>`"
+- **Failure mode:** missing-risk
+- **Why it matters:** a token in the URL would become the first line of a document meant for pasting.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. Every shown URL — heading, stderr and GUI status — is the display form, with the userinfo removed. `test_display_url_strips_credentials` checks the conversion. `test_cli_unreachable_url_exits_1` now passes `user:SECRET@` and asserts that `SECRET` is absent from stderr. Measured separately: git itself redacted the credentials from its own error line.
+
+### R2 C-007: Nothing required a repaint when a job finishes
+- **Where:** T-004
+- **Quote:** "`run()` panics while the app keeps requesting repaints"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** eframe's reactive loop would leave `Fetching…` on screen until the mouse moved.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. A T-004 clause requires a repaint within 100 ms on every working frame. `test_generate_disabled_while_working` asserts the root viewport's `repaint_delay` is at most 100 ms, and INT-0006 records it.
+
+### R2 C-008: A history entry was rewritten, and an anchor was stale
+- **Where:** INT-0002 Transition history; INT-0006 Work evidence
+- **Quote:** "amended while `planned`, at sprint 3 planning"
+- **Failure mode:** intent-drift
+- **Why it matters:** the schema forbids erasing entries, and INT-0006's anchor no longer resolved.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **INT-0002:** the entry is restored byte for byte, in its committed position. A `diff` confirmed that the `6eae258` history is a prefix of the current one. An appended correction note records that the amendment actually came after the move to `planned`.
+  - **INT-0006:** the anchor now points at `#t-003-gui-crate-window-and-fields`. The unnoted Consequences additions got their own history note.
+
+### R2 C-009: The README would contradict the new behaviour
+- **Where:** T-002 and T-007; README "Not yet", exit codes and introduction
+- **Quote:** "Bundling a git branch, worktree, or a remote repository … out of scope for now."
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** the README would both document URL sources and call them unsupported. It would also claim the whole repository is std-only.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **T-002 clause:** "Not yet" drops remote repositories, and exit code `1` covers a failed fetch.
+  - **T-007 clause:** the introduction scopes std-only to the `mdeezl` crate.
+  - **Tests:** `test_readme_documents_url_sources` gains a negative needle. `test_readme_scopes_std_only_to_the_engine` is new.
+
+### R2 C-010: Smaller gaps between the plan and its tests
+- **Where:** T-001 to T-004 and their tests
+- **Quote:** "hinted `Folder path or https:// URL`"; "`bytes_async`"; "a byte prefix of the block in the new `src/lib.rs`"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** several clauses could pass or fail for reasons their tests would not see.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Placeholder:** asserted through AccessKit.
+  - **Rename failure:** provoked by making `<name>.md` a directory, as the second case of `test_failed_job_keeps_existing_output`.
+  - **`bytes_async`:** dropped, because it is wasm-only.
+  - **Verbatim check:** runs on committed blobs.
+  - **T-003 Touches:** lists `Cargo.lock`.
+  - **T-002 Intent:** names INT-0006 for the no-console-window clause.
+
 ## Confidence
-block
+proceed-with-caveats

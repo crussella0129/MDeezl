@@ -3,7 +3,7 @@
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0006
 - **State:** planned
-- **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-003 GUI crate, controls and worker](../sprints/s3/sprint-plans/build-plan.md#t-003-gui-crate-controls-and-worker)
+- **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-003 GUI crate, window and fields](../sprints/s3/sprint-plans/build-plan.md#t-003-gui-crate-window-and-fields)
 - **Completion evidence:** none
 - **Code evidence:** none
 - **Test evidence:** none
@@ -111,6 +111,11 @@ stack to a project that has so far had no runtime dependencies at all.
 - **Generate replaces an existing `<name>.md`.** The document is written to a
   temporary sibling file and renamed over the target in one step, so a failed
   run never damages an earlier good file.
+- **Closing the window during a fetch waits for it.** The app's drop joins its
+  worker, so the engine's temporary clone is removed before the process exits.
+  The process may therefore linger, windowless, until the clone ends.
+- **The window repaints on its own while working**, so the result appears
+  without the user moving the mouse.
 - **The CI gate lines change.** `fmt` and `clippy` must cover the workspace,
   and [INT-0005](INT-0005-reproducible-toolchain.md)'s guard test pins those
   lines, so the two change together.
@@ -138,3 +143,10 @@ stack to a project that has so far had no runtime dependencies at all.
     temporary sibling and a rename.
 
   The plan's tasks are now T-001 and T-003 to T-007.
+- 2026-09-19: correction. The Consequences entry "The CI gate lines change",
+  and a since-replaced X11-only entry, were added at sprint 3 planning without
+  a history note; this is that note. The Work-evidence anchor was repointed to
+  T-003's new heading.
+- 2026-09-19: amended while `planned`, from the second sprint 3 plan critique.
+  Two Consequences were added: closing the window waits for a running fetch,
+  and the window repaints on its own while working.

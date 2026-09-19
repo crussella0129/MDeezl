@@ -30,7 +30,7 @@
     - T-006: Weasel hero and window icon
   - Delivery
     - T-005: CI gates cover the workspace
-    - T-007: README desktop-app section
+    - T-007: README desktop-app section and scope
 
 ## Execution Sequence
 
@@ -58,7 +58,7 @@
   - **`tests/cli.rs`** receives insertions only, in T-001 through T-004.
 
 ### T-002: URL sources
-- **Intent:** [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md)
+- **Intent:** [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md); [INT-0006](../../../intents/INT-0006-desktop-gui.md) for the no-console-window clause
 - **Touches:** `src/lib.rs`, `tests/cli.rs`, `README.md`
 - **Depends on:** T-001
 - **Acceptance criterion:** INT-0002's remote half:
@@ -69,13 +69,24 @@
   - the temporary copy removed.
 - **Success criterion (EARS):**
   - **WHEN** `mdeezl::is_url(s)` is called, **THEN** it **SHALL** return true exactly when `s` begins with `https://`, `http://` or `file://`. **WHEN** the source argument is not a URL — including `ftp:/weird`, `git@host:x/y` and `C:\x` — **THEN** mdeezl **SHALL** treat it as a local path, as before. Detection **SHALL** use the argument's text (`to_str`), never path components.
-  - **WHEN** a URL source is fetched, **THEN** the clone command **SHALL** be exactly `git -c credential.helper= -c core.askPass= -c core.autocrlf=false clone --depth 1 --quiet -- <url> <dest>`. It **SHALL** run with:
-    - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and `GIT_ALLOW_PROTOCOL=https:http:file` set;
+  - **WHEN** a URL source is fetched, **THEN** the clone command **SHALL** be exactly `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf clone --depth 1 --quiet -- <url> <dest>`. It **SHALL** run with:
+    - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
     - `GIT_ASKPASS`, `SSH_ASKPASS` and the 15 repository-local git variables removed;
     - `<dest>` as `<base>/mdeezl-<pid>-<n>/<repo-name>`, where `<base>` is `std::env::temp_dir()` in production.
-  - **WHEN** `<repo-name>` is derived from a URL, **THEN** it **SHALL** be the last non-empty `/`-separated segment with one trailing `.git` removed, or `repository` if none remains.
-  - **WHEN** the clone succeeds, **THEN** the document **SHALL** be the clone's bundle, with heading `# <url>` and tree root line `<repo-name>/`, and `Bundle.name` **SHALL** be `<repo-name>`. The committed files' bytes are as committed, because `core.autocrlf=false`.
-  - **WHEN** the fetch fails — a missing, unauthorised or unreachable repository, a protocol outside the allow-list, or git not found — **THEN** the CLI **SHALL** exit 1, with empty stdout and one stderr line `mdeezl: could not fetch <url>: <reason>`. `<reason>` **SHALL** be git's last non-empty stderr line without a leading `fatal: `, or `git was not found on PATH`.
+  - **WHEN** `<repo-name>` is derived from a URL, **THEN** it **SHALL** be derived as follows:
+    1. take the URL's path: everything after the scheme's `//` and the authority up to the next `/`, with any `?…` query or `#…` fragment dropped;
+    2. take the last non-empty `/`-separated segment of that path, with one trailing `.git` removed;
+    3. use `repository` if no segment remains, or if the segment is `.` or `..`, or if it contains `\`, `:`, `?` or `#`.
+
+    The name is used as a path component, so it can never leave its folder.
+  - **WHEN** a URL is shown — in the document heading, on stderr or in the GUI — **THEN** it **SHALL** be the display form, with any `user[:password]@` userinfo removed from its authority. The clone itself uses the URL as given.
+  - **WHEN** the clone succeeds, **THEN** the document **SHALL** be the clone's bundle, with heading `# <display-url>` and tree root line `<repo-name>/`, and `Bundle.name` **SHALL** be `<repo-name>`. Line endings **SHALL** be the same on every OS: `core.autocrlf=false` and `core.eol=lf` check text files out with LF, and a file with an explicit `eol` attribute follows it.
+  - **WHEN** the fetch fails — a missing, unauthorised or unreachable repository, a protocol outside the allow-list, or git not found — **THEN** the CLI **SHALL** exit 1, with empty stdout and one stderr line `mdeezl: could not fetch <display-url>: <reason>`. `<reason>` **SHALL** be one of:
+    - git's first stderr line beginning `fatal: `, with that prefix removed;
+    - if no such line exists, git's last non-empty stderr line;
+    - if git is not found, `git was not found on PATH`.
+
+    It is measured: a missing repository's first `fatal:` line is `'<path>' does not appear to be a git repository`, and its last line is boilerplate.
   - **WHEN** a fetch ends, successful or not, **THEN** its `mdeezl-<pid>-<n>` directory **SHALL** no longer exist.
   - **WHEN** mdeezl spawns git on Windows, for `check-ignore` or `clone`, **THEN** it **SHALL** pass `CREATE_NO_WINDOW`, so a windowed parent never flashes a console.
   - **WHEN** `--help` or the README is read, **THEN** it **SHALL** say four things:
@@ -83,16 +94,20 @@
     - it needs git;
     - it is shallow-cloned into a temporary folder that is removed afterwards;
     - private repositories are not supported.
+
+    The README's exit-code line **SHALL** count a failed fetch under `1`. Its "Not yet" section **SHALL** no longer list remote repositories; it keeps the git-ref half and INT-0003.
 - **Notes:**
   - The fetch is a private `fetch(url, base)`, so unit tests pass their own base folder. `bundle` passes `temp_dir()`.
   - Under `cfg(test)`, the clone gets the same config isolation as `git_ignored`.
   - Stdin is null. `Command` does not expose stdin, so that is left to code review.
+  - With `GIT_LFS_SKIP_SMUDGE=1`, an LFS-tracked file is bundled as its small pointer text, and no LFS object is downloaded. This is git-lfs's documented behaviour, and INT-0002 records it.
+  - An interrupted CLI run, such as Ctrl+C, can leave its temporary clone behind. INT-0002 records this limitation.
   - `create_dir` retries with the next `<n>` if a stale directory exists.
   - Every test builds its `file://` URL the same way: canonicalise, strip a `\\?\` prefix, turn `\` into `/`, then prefix `file://` to a path beginning `/` or `file:///` to a drive path.
 
 ### T-003: GUI crate, window and fields
 - **Intent:** [INT-0006](../../../intents/INT-0006-desktop-gui.md)
-- **Touches:** `Cargo.toml` (`[workspace] members`), `gui/Cargo.toml`, `gui/src/lib.rs`, `gui/src/main.rs`, `gui/tests/app.rs`
+- **Touches:** `Cargo.toml` (`[workspace] members`), `Cargo.lock` (gains the GUI's dependency graph), `gui/Cargo.toml`, `gui/src/lib.rs`, `gui/src/main.rs`, `gui/tests/app.rs`
 - **Depends on:** T-001, T-002
 - **Acceptance criterion:** INT-0006 "One window, four controls" and "The CLI stays dependency-free".
 - **Success criterion (EARS):**
@@ -133,8 +148,9 @@
     3. show `Wrote <path> (<size>)` and every notice.
 
     `<size>` is `format_size(bytes)`: `N bytes` below 1024, `N.N KB` below 1 MiB, `N.N MB` otherwise. The file's bytes **SHALL** equal `bundle(&options).document`.
-  - **WHEN** the app is working, **THEN** `Generate` **SHALL** be disabled, and the status **SHALL** read `Fetching…` if `mdeezl::is_url(source)`, otherwise `Bundling…`.
-  - **WHEN** the job fails, or the write or rename fails, **THEN** the status **SHALL** show the error, and the temporary sibling **SHALL** be removed. An existing `<name>.md` **SHALL** be left exactly as it was; if none existed, none **SHALL** exist.
+  - **WHEN** the app is working, **THEN** `Generate` **SHALL** be disabled, and the status **SHALL** read `Fetching…` if `mdeezl::is_url(source)`, otherwise `Bundling…`. Every frame **SHALL** request a repaint within 100 ms, so the window shows the result without waiting for input.
+  - **WHEN** the app is dropped while its worker runs, as when the window closes during a fetch, **THEN** the drop **SHALL** wait for the worker to finish, so the engine's temporary-clone guard runs before the process exits.
+  - **WHEN** the job fails, or the write or rename fails, **THEN** the status **SHALL** show the error, and the temporary sibling **SHALL** be removed. An existing `<name>.md` **SHALL** be left exactly as it was; if none existed, none **SHALL** exist. A rename failure is provoked by making `<name>.md` a directory.
   - **WHEN** `Generate` is activated with an empty source, **THEN** the status **SHALL** read `Choose a folder or URL`. With an empty output folder it **SHALL** read `Choose an output folder`. In both cases no job **SHALL** start.
 - **Notes:** a successful Generate replaces an existing `<name>.md` in one rename, which INT-0006 records.
 
@@ -164,7 +180,7 @@
   - **WHEN** `native_options()` is built, **THEN** its viewport icon **SHALL** be `weasel::icon(64)`: a 64×64 RGBA raster of the same shapes, with transparent corners and opaque (alpha ≥ 128) coverage between 15 % and 60 % of pixels.
   - **WHEN** the Test Phase ends, **THEN** a screenshot of the running window **SHALL** have been shown to the user. The user's judgement decides whether it reads as a weasel.
 
-### T-007: README desktop-app section
+### T-007: README desktop-app section and scope
 - **Intent:** [INT-0006](../../../intents/INT-0006-desktop-gui.md)
 - **Touches:** `README.md`, `tests/cli.rs`
 - **Depends on:** T-004, T-006
@@ -176,3 +192,4 @@
     - the controls: `Source`, `Browse…`, `fence`, `inline`, `none`, `Respect .gitignore`, `Output folder` and `Generate`;
     - that output is written as `<name>.md`, replacing a file of that name;
     - that a URL source needs git.
+  - **WHEN** the README's introduction is read, **THEN** it **SHALL** scope "standard library only, no dependencies" to the `mdeezl` crate, and say that the desktop app is a separate crate with its own dependencies.

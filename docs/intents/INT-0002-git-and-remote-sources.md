@@ -74,6 +74,25 @@ pure-`std` shape if entangled with it.
       repository's content as committed, the same on every OS.
     - **No console window.** On Windows, git is spawned with
       `CREATE_NO_WINDOW`, so a windowed caller never flashes a console.
+    - **Same line endings on every OS.** `core.autocrlf=false` alone is not
+      enough. Measured: a `* text=auto` repository still checked out CRLF on
+      Windows. Adding `core.eol=lf` checks text files out with LF everywhere,
+      and a file with an explicit `eol` attribute still follows it.
+    - **No LFS downloads.** `GIT_LFS_SKIP_SMUDGE=1` leaves LFS-tracked files as
+      their small pointer text. A host's git-lfs setup therefore cannot pull
+      large objects into a text bundle, or fail the clone on an exhausted quota.
+  - **What is shown differs from what is fetched.** The heading, error lines
+    and GUI status show the URL with any `user[:password]@` removed, so a token
+    in a URL is never copied into a document meant for pasting. The clone uses
+    the URL as given.
+  - **The repository name is made safe.** The name comes from the URL's last
+    path segment. `.`, `..`, or anything containing `\`, `:`, `?` or `#`,
+    becomes `repository`, so the name can never leave its folder when it is
+    used as a path.
+  - **A failure names its cause.** The reason is git's first `fatal:` line.
+    Measured: for a missing repository that line is
+    "… does not appear to be a git repository", while the last line is generic
+    advice.
   - **It was measured with git 2.54:** a one-commit public repository cloned
     in 0.9 s.
   - **Failures are fast and clean.** With `GIT_TERMINAL_PROMPT=0` and the
@@ -95,6 +114,10 @@ pure-`std` shape if entangled with it.
   rate limits) that INT-0001 does not have.
 - Deferring it keeps sprint 0 small; the cost is that branch-scoped bundling is
   unavailable until it is scheduled.
+- An interrupted CLI run, such as Ctrl+C during a clone, can leave its
+  temporary clone in the system temp folder. The GUI waits for its worker when
+  the window closes, so the guard still runs there.
+- LFS-tracked files appear in a URL bundle as pointer text, not content.
 
 ## Transition history
 - 2026-09-17: created as `proposed`; explicitly out of scope for sprint 0.
@@ -103,12 +126,26 @@ pure-`std` shape if entangled with it.
   half is scheduled ahead of the git-ref half, which backlog T-103 keeps. The
   measured clone mechanism was added under Alternatives. Two criteria were
   added: no waiting on a person, and removal of the temporary copy.
+- 2026-09-19: amended while `proposed`, at sprint 3 planning. Two decisions
+  were added: `file://` counts as a URL, and a URL source's heading is its URL.
 - 2026-09-19: `proposed → planned` for sprint 3. Work evidence: T-002 delivers
   the remote half. The git-ref half and its criterion stay in backlog T-103.
-- 2026-09-19: amended while `planned`, at sprint 3 planning. Two decisions
-  were added: `file://` counts as a URL, and a URL source's heading is its URL.
 - 2026-09-19: amended while `planned`, from the sprint 3 plan critique. The
   fetch was hardened against the other prompt routes (askpass, and ssh
   reached through an `insteadOf` rewrite), keeps committed bytes with
   `core.autocrlf=false`, and spawns git without a console window on Windows.
   All of it was measured before being recorded.
+- 2026-09-19: correction to the entry "amended while `proposed`, at sprint 3
+  planning". That amendment was in fact made after the move to `planned`. A
+  later revision rewrote the entry in place; it has been restored here, as the
+  schema forbids erasing entries, and this note corrects it instead.
+- 2026-09-19: amended while `planned`, from the second sprint 3 plan critique,
+  which returned `proceed-with-caveats`. Each item was measured where
+  measurable:
+  - the clone adds `core.eol=lf` and `GIT_LFS_SKIP_SMUDGE=1`;
+  - a shown URL drops its userinfo;
+  - the repository name is made path-safe;
+  - a failure's reason is git's first `fatal:` line.
+
+  Two Consequences were added: Ctrl+C in the CLI can leave a temporary clone,
+  and LFS files appear as pointers.

@@ -11,12 +11,13 @@
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md), [INT-0001](../../../intents/INT-0001-markdown-repo-context-bundle.md) | The CLI stays dependency-free | T-001 / WHEN `cargo tree -p mdeezl` runs THEN only `mdeezl` | `test_manifest_dependencies_table_is_empty` (unedited); literal `cargo tree -p mdeezl` output in the report |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | A remote addressed by URL | T-002 / WHEN `is_url` is called THEN true exactly for `https://`, `http://` and `file://` | `test_is_url` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Never waits on a person | T-002 / WHEN fetched THEN the exact clone command and env | `test_clone_command_is_hardened`; `test_fetch_rejects_protocol_outside_allow_list` |
-| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | A remote addressed by URL | T-002 / WHEN `<repo-name>` is derived THEN last segment minus `.git`, or `repository` | `test_repo_name` |
-| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | The document records its source | T-002 / WHEN the clone succeeds THEN `# <url>`, `<repo-name>/`, and `name`; committed bytes | `test_fetch_file_url_bundles_the_clone`; `test_cli_file_url_source_bundles_the_clone` |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | A remote addressed by URL | T-002 / WHEN `<repo-name>` is derived THEN the last path segment minus `.git`, or `repository` for anything unsafe | `test_repo_name` |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | The document records its source | T-002 / WHEN a URL is shown THEN userinfo is removed | `test_display_url_strips_credentials`; `test_cli_unreachable_url_exits_1` (credentials in the URL, absent from stderr) |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | The document records its source | T-002 / WHEN the clone succeeds THEN `# <display-url>`, `<repo-name>/`, `name`, and LF text files on every OS | `test_fetch_file_url_bundles_the_clone`; `test_cli_file_url_source_bundles_the_clone` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Failures give stderr, non-zero exit and no partial document | T-002 / WHEN the fetch fails THEN exit 1, empty stdout, one `could not fetch` line | `test_cli_unreachable_url_exits_1`; `test_cli_url_without_git_exits_1`; `test_fetch_bad_url_errs` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | The temporary copy is removed | T-002 / WHEN a fetch ends THEN its directory is gone | `test_fetch_file_url_bundles_the_clone`; `test_fetch_bad_url_errs`; `test_cli_file_url_source_bundles_the_clone`; `test_cli_unreachable_url_exits_1` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working (no console flash) | T-002 / WHEN git is spawned on Windows THEN `CREATE_NO_WINDOW` | `test_git_commands_set_create_no_window` (Windows only; self-skips elsewhere); **manual check** with the release GUI |
-| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Documented source forms | T-002 / WHEN `--help` or the README is read THEN URL, git, temporary clone, no private repositories | `test_cli_help_documents_url_sources`; `test_readme_documents_url_sources` |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Documented source forms | T-002 / WHEN `--help` or the README is read THEN URL, git, temporary clone, no private repositories; exit code `1` covers a fetch; "Not yet" drops remotes | `test_cli_help_documents_url_sources`; `test_readme_documents_url_sources` |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Remote over the real network | T-002 (all clauses, live) | `test_live_github_clone` (`#[ignore]`), run by hand in the Test Phase |
 | [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md) | Reading a git ref does not mutate the working tree | none — the git-ref half, backlog T-103 | **not in this sprint**; INT-0002 stays `active` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The CLI stays dependency-free | T-003 / WHEN built THEN `mdeezl-gui` has exactly the planned dependencies and features | `test_gui_manifest_dependencies` |
@@ -26,7 +27,8 @@
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls | T-003 / WHEN a folder is dropped THEN it becomes the source | `test_dropped_folder_fills_source` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 / WHEN Generate is activated THEN working before return, and the job on a worker | `test_generate_marks_working_before_returning` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The CLI's own output | T-004 / WHEN the job succeeds THEN temp, rename, `Wrote … (<size>)`, notices, and engine bytes | `test_generate_writes_engine_bytes`; `test_generate_shows_notices`; `test_format_size` |
-| [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 / WHEN working THEN Generate disabled; `Fetching…` or `Bundling…` | `test_generate_disabled_while_working`; `test_status_names_fetching_or_bundling` |
+| [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Responsive while working | T-004 / WHEN working THEN Generate disabled; `Fetching…` or `Bundling…`; a repaint within 100 ms | `test_generate_disabled_while_working`; `test_status_names_fetching_or_bundling` |
+| [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md), [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The temporary copy is removed; no partial files | T-004 / WHEN the app is dropped while working THEN it waits for the worker | `test_dropping_app_waits_for_worker`; **manual check**: closing the window during a live fetch leaves no `mdeezl-*` folder in the temp folder |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | No partial files | T-004 / WHEN the job or write fails THEN error, temp removed, existing file untouched | `test_failed_job_keeps_existing_output`; `test_generate_missing_folder_writes_nothing`; `test_generate_unreachable_url_writes_nothing`; `test_generate_unwritable_output_writes_nothing` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | One window, four controls | T-004 / WHEN a field is empty THEN the status names it, and no job | `test_generate_requires_source_and_output` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Tested in CI on both OSes | T-005 / WHEN CI runs THEN the three workspace gates, nothing else changed | `test_ci_updates_installs_and_logs_in_order` (updated); the **gate mutation check** |
@@ -37,16 +39,17 @@
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The weasel is drawn by the app | T-006 / WHEN `native_options()` is built THEN the icon is `icon(64)` with the stated coverage | `test_icon_rasterises_the_weasel`; `test_native_options_carry_the_icon` |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | The weasel is judged by a person | T-006 / a screenshot is shown to the user | **Human verification**: a screenshot of the running window, with the user's verdict quoted in the test report |
 | [INT-0006](../../../intents/INT-0006-desktop-gui.md) | Documented | T-007 / WHEN the README is read THEN the desktop-app items | `test_readme_documents_desktop_app` |
+| [INT-0006](../../../intents/INT-0006-desktop-gui.md), [INT-0001](../../../intents/INT-0001-markdown-repo-context-bundle.md) | Documented; the dependency property's scope | T-007 / WHEN the intro is read THEN std-only is scoped to the `mdeezl` crate | `test_readme_scopes_std_only_to_the_engine` |
 
 ## Unit Tests
 
 ### T-001 unit tests (`src/lib.rs`, appended to `mod tests`)
 - **Intent:** [INT-0006](../../../intents/INT-0006-desktop-gui.md)
 - `test_bundle_returns_notices_as_data`: `bundle` on a plain `tmp_dir`, which is not a git work tree, returns exactly one notice. It begins `gitignore filtering skipped:` and has no `mdeezl: ` prefix.
-- **Verbatim check** (recorded, not a test):
+- **Verbatim check** (recorded, not a test), on **committed blobs**, because the working tree is CRLF and the index LF:
   1. extract the `#[cfg(test)] mod tests { … }` block from `git show 24442f1:src/main.rs`;
   2. strip its final `}`;
-  3. confirm it is a byte prefix of the block in the new `src/lib.rs`.
+  3. confirm it is a byte prefix of the block in `git show <T-001 commit>:src/lib.rs`.
 
 ### T-002 unit tests (`src/lib.rs`, appended to `mod tests`, reusing its helpers)
 - **Intent:** [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md)
@@ -60,15 +63,22 @@
   | `…/repo/` | `repo` |
   | `file:///C:/tmp/fixture` | `fixture` |
   | `https://host/` | `repository` |
+  | `https://host` | `repository` |
+  | `https://h/o/r?x=1#top` | `r` |
+  | `https://h/o/..` | `repository` |
+  | `https://h/o/a\..\..\x` | `repository` |
+  | `https://h/o/c:x` | `repository` |
+- `test_display_url_strips_credentials`: `https://user:TOKEN@github.com/o/r` → `https://github.com/o/r`, and `https://tok@h/r` → `https://h/r`. A URL without userinfo, and a `file:///C:/x` URL, come back unchanged.
 - `test_clone_command_is_hardened`: reads `Command::get_args` and `get_envs`.
-  - The arguments are exactly the planned `-c …` and `clone …` list, ending `-- <url> <dest>`.
-  - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and `GIT_ALLOW_PROTOCOL=https:http:file` are set.
+  - The arguments are exactly the planned `-c …` and `clone …` list, including `core.eol=lf`, and end `-- <url> <dest>`.
+  - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` are set.
   - `GIT_ASKPASS`, `SSH_ASKPASS` and all 15 local variables are set to be removed.
 - `test_fetch_rejects_protocol_outside_allow_list`: `fetch` with `ssh://127.0.0.1/x` returns `Err`, and the reason names the transport as not allowed. No network is reached: the allow-list refuses it first.
-- `test_fetch_file_url_bundles_the_clone`: uses a committed fixture repository, with an identity passed through `-c`, and an untracked file beside it. `fetch` runs against a base folder owned by the test.
-  - The bundle's heading is `# <url>`, its tree root `<name>/`, and it holds the committed file's text but not the untracked file. The content check ignores line endings.
+- `test_fetch_file_url_bundles_the_clone`: uses a committed fixture repository, with an identity passed through `-c`. It holds a `.gitattributes` of `* text=auto` and an LF text file, committed with `core.autocrlf=false`, plus an untracked file beside them. `fetch` runs against a base folder owned by the test.
+  - The bundle's heading is `# <url>` and its tree root `<name>/`.
+  - It holds the committed file's text **byte for byte with LF**, on Windows too, and not the untracked file.
   - Once the clone is dropped, the base folder is empty.
-- `test_fetch_bad_url_errs`: a `file://` URL to a missing path returns `Err` whose text begins `could not fetch`. The test-owned base folder is empty afterwards.
+- `test_fetch_bad_url_errs`: a `file://` URL to a missing path returns `Err`. Its text begins `could not fetch`, and contains `does not appear to be a git repository`, which is git's first `fatal:` line, not its trailing boilerplate. The test-owned base folder is empty afterwards.
 - `test_git_commands_set_create_no_window` (Windows only): on Windows the flag is applied by one shared helper. This test calls that helper on a `Command`, then spawns `git --version` through it, which proves the flagged process still runs and returns output. Elsewhere it prints SKIP.
 
 ### T-003 and T-004 unit tests (`gui`)
@@ -120,14 +130,16 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - exit 0, and the heading is the URL;
   - the committed file's text is present and the untracked file absent, compared ignoring line endings;
   - the test-owned temp folder is empty afterwards.
-- `test_cli_unreachable_url_exits_1`: `https://127.0.0.1:1/x.git`.
+- `test_cli_unreachable_url_exits_1`: `https://user:SECRET@127.0.0.1:1/x.git`.
   - Exit 1 and empty stdout.
-  - Stderr is exactly one line beginning `mdeezl: could not fetch https://127.0.0.1:1/x.git: `.
+  - Stderr is exactly one line beginning `mdeezl: could not fetch https://127.0.0.1:1/x.git: `, and it does not contain `SECRET`.
   - The temp folder is empty afterwards.
   - Localhost only, so no network is used.
 - `test_cli_url_without_git_exits_1`: an empty `PATH` and a `file://` URL give exit 1, empty stdout, and stderr ending `git was not found on PATH`.
 - `test_cli_help_documents_url_sources`: `--help` contains `URL`, `https://`, `git`, `temporary`, and `private repositories are not supported`.
 - `test_readme_documents_url_sources`: the README contains the same.
+  - Its exit-code paragraph mentions a failed fetch.
+  - Its "Not yet" section does **not** contain `remote repository`.
 - `test_live_github_clone` (`#[ignore]`, run by hand in the Test Phase):
   - `https://github.com/octocat/Hello-World` bundles, with heading `# https://github.com/octocat/Hello-World` and a `README` section;
   - `https://github.com/octocat/definitely-not-a-repo-mdeezl` fails within 10 s, with exit 1 and no prompt;
@@ -136,14 +148,22 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
   - `test_app_has_exactly_the_controls`:
     - `query_all_by_role` counts exactly 2 `TextInput`, 3 `Button`, 3 `RadioButton` and 1 `CheckBox`;
     - the labels `MDeezl`, `Source`, `Output folder`, `fence`, `inline`, `none`, `Respect .gitignore` and `Generate` are found;
+    - the source field's AccessKit placeholder is `Folder path or https:// URL`;
     - two `Browse…` buttons are found.
   - `test_app_defaults`: `fence` is selected, the checkbox is checked, and the output field equals the home folder computed by the rule in T-003.
-  - `test_dropped_folder_fills_source`: a test type implementing egui's `DroppedFile` trait (`path`, `bytes`, `bytes_async`) is pushed as an `Arc` into `harness.input_mut().dropped_files`. After one `step()`, the source field holds its path.
+  - `test_dropped_folder_fills_source`: a test type implementing egui's native `DroppedFile` trait (`path` and `bytes`; `bytes_async` is wasm-only) is pushed as an `Arc` into `harness.input_mut().dropped_files`. After one `step()`, the source field holds its path.
   - `test_generate_marks_working_before_returning`: with a gated job, `App::generate()` returns with `is_working()` true. After release, the polling loop sees the result.
-  - `test_generate_disabled_while_working`: with a gated job, after one `step()`, the `Generate` node's `accesskit_node().is_disabled()` is true. After release and completion, it is false.
+  - `test_generate_disabled_while_working`: with a gated job, after one `step()`:
+    - the `Generate` node's `accesskit_node().is_disabled()` is true;
+    - the root viewport output's `repaint_delay` is at most 100 ms.
+
+    After release and completion, `Generate` is enabled again.
+  - `test_dropping_app_waits_for_worker`: a gated job is released by another thread after 200 ms. Dropping the harness, and with it the app, returns only after the job has finished, which a flag set by the job shows.
   - `test_status_names_fetching_or_bundling`: with a gated job, a local source shows `Bundling…` and a `file://` source shows `Fetching…`.
   - `test_generate_shows_notices`: the real job on a fixture that is not a git work tree gives a status containing `Wrote` and `gitignore filtering skipped:`.
-  - `test_failed_job_keeps_existing_output`: `<out>/<name>.md` is pre-seeded with a sentinel, then a job returns `Err`. The status shows the error, the sentinel file is unchanged, and no `.mdeezl-tmp` file remains.
+  - `test_failed_job_keeps_existing_output`, two cases:
+    1. `<out>/<name>.md` is pre-seeded with a sentinel, then a job returns `Err`. The status shows the error, the sentinel is unchanged, and no `.mdeezl-tmp` file remains.
+    2. `<out>/<name>.md` is a *directory*, so the rename fails. The status shows the error, the directory is still there, and no `.mdeezl-tmp` file remains.
   - `test_generate_missing_folder_writes_nothing`: the real job on a missing path shows an error, and the output folder stays empty.
   - `test_generate_unreachable_url_writes_nothing`: the real job on `https://127.0.0.1:1/x.git` shows an error beginning `could not fetch`, and the output folder stays empty.
   - `test_generate_unwritable_output_writes_nothing`: the output path is an existing *file*. An error is shown, and the file's contents are unchanged.
@@ -153,6 +173,7 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
     - at least as many line segments as the tubes have segments.
 
     The radio buttons' circles lie outside the hero rect and are not counted.
+- `test_readme_scopes_std_only_to_the_engine`: the introduction, the text before `## Install`, says the `mdeezl` crate is standard-library only, and mentions the desktop app's separate crate.
 - `test_readme_documents_desktop_app`: the `## Desktop app` section contains:
   - `cargo run -p mdeezl-gui --release` and `cargo install --path gui`;
   - `Source`, `Browse…`, `fence`, `inline`, `none`, `Respect .gitignore`, `Output folder` and `Generate`;
@@ -161,4 +182,5 @@ Each change is applied to the real workflow, `test_ci_updates_installs_and_logs_
 - **Manual checks**, recorded in the test report:
   - `Browse…` opens a native folder picker and fills its field;
   - a live GitHub URL generated from the release window shows `Fetching…` while the window stays responsive;
-  - no console window flashes while it runs.
+  - no console window flashes while it runs;
+  - closing the window during a live fetch leaves no `mdeezl-*` folder in the temp folder.
