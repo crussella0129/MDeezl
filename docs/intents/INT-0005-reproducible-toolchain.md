@@ -6,7 +6,7 @@
 - **Work evidence:** [Sprint 2 build plan](../sprints/s2/sprint-plans/build-plan.md), [T-001 toolchain file and CI steps](../sprints/s2/sprint-plans/build-plan.md#t-001-toolchain-file-and-ci-steps)
 - **Completion evidence:** none
 - **Code evidence:** none
-- **Test evidence:** none
+- **Test evidence:** [Sprint 2 test report](../sprints/s2/sprint-tests/test-report.md), [unit](../sprints/s2/sprint-tests/unit-tests.md), [integration](../sprints/s2/sprint-tests/integration-tests.md), [end-to-end](../sprints/s2/sprint-tests/e2e-tests.md)
 - **Documentation evidence:** none
 
 ## Intent
@@ -171,3 +171,10 @@ stable was 1.98.1.
     each command is its own CI step.
 - 2026-09-18: `planned → active`; sprint 2 Build Phase began T-001 and T-002.
   Backlog item T-105 was consumed by those two tasks.
+- 2026-09-19: Test Phase evidence attached while `active`. The tested head is
+  `56bd757`, and CI run 35426964502 passed on both legs. With the user's
+  consent, the pinned CI gate ran on throwaway PR #4, closed unmerged: both
+  legs installed and ran 1.96.0. The test critique took four rounds, ending
+  `clean`. Lag correction in CI was not exercised, because every update step
+  reported `unchanged`. That is recorded as an open observation under
+  Consequences and owned by backlog T-106.

@@ -8,15 +8,37 @@ Read-only test critic rounds from the installed bundle's
 | 1 | `block` | 12 |
 | 2 | `proceed-with-caveats` | 3 |
 | 3 | `proceed-with-caveats` | 1 |
+| 4 | `clean` | 0 |
 
 Round 2 re-verified all twelve round-1 resolutions against `60a529a`, git, and
 the four cited CI runs, and found them to hold as recorded. The round-2
 concerns follow the round-1 ones. Round 3 re-verified the round-2 resolutions
 against `fb943c2` and CI run 35426602219. It found that all 38 recorded
 assertion messages match what the code raises, and that nothing from round 1
-had regressed. Its one concern is last.
+had regressed. Its one concern is last. Round 4 verified the round-3 fix at
+`56bd757`, and checked the restamped records against git and CI run
+35426964502. It found no remaining concern.
 
-## Concerns
+None of the findings was an implementation defect: `src/` is untouched this
+sprint. They were tests that would have gone green through a real revert, and
+records that claimed more than they showed. The most consequential:
+
+- **Commented-out steps passed.** The first workflow test matched substrings,
+  so commenting out the update, install and log steps left it green.
+- **Disabling keys passed.** An `if:` or `continue-on-error:` at step, job or
+  matrix level, or a matrix `exclude:`, could skip or excuse a step or the
+  Windows leg.
+- **Overrides passed.** `RUSTUP_TOOLCHAIN`, `rustup override`, or a legacy
+  `rust-toolchain` file could each outrank the pin, while every checked line
+  stayed in place.
+
+The mutation check grew from the plan's 11 changes to 39, each quoting the
+assertion it trips.
+
+## Earlier rounds and their resolutions
+
+Rounds 1–3, in order: round 1 is C-001 to C-012, round 2 is R2 C-001 to C-003,
+and round 3 is R3 C-001.
 
 ### C-001: Workflow-order test passes when the new steps are commented out
 - **Where:** `tests/cli.rs` `test_ci_updates_installs_and_logs_in_order`; `INT-0005` last criterion
@@ -146,5 +168,8 @@ had regressed. Its one concern is last.
 - **Suggested response:** add-test
 - **Resolution:** fixed in `56bd757`. The toolchain test asserts that no `rust-toolchain` file exists beside the `.toml`. Mutation 39 adds one and fails with `no legacy rust-toolchain file may outrank rust-toolchain.toml`. Rows 1–38 were re-run against `56bd757` and gave the same messages.
 
+## Concerns
+(none — intent acceptance and every EARS clause have tight evidence.)
+
 ## Confidence
-proceed-with-caveats
+clean
