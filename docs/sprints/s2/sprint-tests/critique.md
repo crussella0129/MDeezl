@@ -7,10 +7,14 @@ Read-only test critic rounds from the installed bundle's
 |-------|---------|----------|
 | 1 | `block` | 12 |
 | 2 | `proceed-with-caveats` | 3 |
+| 3 | `proceed-with-caveats` | 1 |
 
 Round 2 re-verified all twelve round-1 resolutions against `60a529a`, git, and
 the four cited CI runs, and found them to hold as recorded. The round-2
-concerns follow the round-1 ones.
+concerns follow the round-1 ones. Round 3 re-verified the round-2 resolutions
+against `fb943c2` and CI run 35426602219. It found that all 38 recorded
+assertion messages match what the code raises, and that nothing from round 1
+had regressed. Its one concern is last.
 
 ## Concerns
 
@@ -133,6 +137,14 @@ concerns follow the round-1 ones.
 - **Why it matters:** If INT-0005 closes `realized`, nobody is prompted to revisit the observation.
 - **Suggested response:** defer-with-rationale
 - **Resolution:** backlog item T-106 now owns it, and INT-0005's observation names it. The test report states explicitly whether INT-0005 may be `realized` while lag correction rests on one host measurement.
+
+### R3 C-001: A legacy `rust-toolchain` file outranks `rust-toolchain.toml`, and all three tests still pass
+- **Where:** `test_toolchain_file_declares_channel_and_components`; `INT-0005` criteria 1 and 3
+- **Quote:** "// The file alone names the toolchain; both of these would outrank it."
+- **Failure mode:** weak-assertion
+- **Why it matters:** rustup prefers an extension-less `rust-toolchain` in the same directory, so adding one would silently void a pin written in the `.toml`. It is the same class as R2 C-002, but reached with a one-file, non-YAML addition.
+- **Suggested response:** add-test
+- **Resolution:** fixed in `56bd757`. The toolchain test asserts that no `rust-toolchain` file exists beside the `.toml`. Mutation 39 adds one and fails with `no legacy rust-toolchain file may outrank rust-toolchain.toml`. Rows 1–38 were re-run against `56bd757` and gave the same messages.
 
 ## Confidence
 proceed-with-caveats

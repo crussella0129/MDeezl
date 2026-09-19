@@ -1,12 +1,12 @@
 # Sprint 2 End-to-End Test Results
 
 - **Status:** possible. All end-to-end coverage the test plan promised is implemented.
-- **Tested head:** `fb943c2074bf4a6315b6b8adca4b103445c557c3` (branch `dev`)
+- **Tested head:** `56bd7577b677311d3f3f936bb2e7cd07649514db` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Local result:** 54 passed, 0 failed, 0 ignored, on Windows 11 with
   `rustc 1.98.1`. That is the 51 end-to-end tests that closed sprint 1, run
-  **unedited**, plus 3 new. `git diff --numstat 7b2cba7 fb943c2 -- tests/cli.rs`
-  reads `230 0`, insertions only.
+  **unedited**, plus 3 new. `git diff --numstat 7b2cba7 56bd757 -- tests/cli.rs`
+  reads `238 0`, insertions only.
 - **CI result:** see the test report for the run on the tested head. The Linux
   leg printed no SKIP lines. The Windows leg printed the same four platform
   SKIPs as sprint 1, each with its reason.
@@ -42,14 +42,20 @@ the code and CI, and found that keys **above** step level still passed:
 - `RUSTUP_TOOLCHAIN` or `rustup override` could outrank the toolchain file;
 - `set +e` could defeat the bash log step.
 
-`fb943c2` closes these, and six more mutations (rows 30–35) confirm it. The
-whole table was re-run against `fb943c2`.
+`fb943c2` closes these, and six more mutations (rows 30–35) confirm it.
+
+Round 3 returned `proceed-with-caveats` and confirmed the round-2 fixes. It
+found one more way to override the toolchain file. rustup prefers a legacy,
+extension-less `rust-toolchain` file in the same directory, so adding one would
+silently void a pin. `56bd757` asserts that no such file exists, and row 39
+confirms it. The whole table was re-run against `56bd757`. Rows 1–38 gave the
+same messages as the run against `fb943c2`.
 
 ## T-001 — toolchain file and CI steps
 
 | Test | EARS clause verified |
 |------|----------------------|
-| `test_toolchain_file_declares_channel_and_components` | Within the `[toolchain]` table only, with comments stripped: `channel` is a quoted, non-empty TOML string, in either `"…"` or `'…'` form, and `components` is a closed one-line array whose quoted items include `rustfmt` and `clippy`. It deliberately accepts any channel, so a pin stays a one-file change. That the channel is `stable` at close is a close-time inspection; see the test report. |
+| `test_toolchain_file_declares_channel_and_components` | No legacy `rust-toolchain` file, which rustup would prefer, exists beside it. Within the `[toolchain]` table only, with comments stripped: `channel` is a quoted, non-empty TOML string, in either `"…"` or `'…'` form, and `components` is a closed one-line array whose quoted items include `rustfmt` and `clippy`. It deliberately accepts any channel, so a pin stays a one-file change. That the channel is `stable` at close is a close-time inspection; see the test report. |
 | `test_ci_updates_installs_and_logs_in_order` | The workflow is parsed into its steps, with comment lines dropped. **Each is its own step:** `run: rustc +stable --version`, `run: rustup update --no-self-update stable` and `run: rustup toolchain install --no-self-update` must each be a step made of exactly that one line. That rules out merging, adding an argument, and any `if:` or `continue-on-error:`. **Order:** they come in that order. **One log step:** a single step then holds `shell: bash` and all five of `rustc`, `cargo`, `cargo clippy`, `rustup` and `git --version`, with no `if:` or `continue-on-error:`. It comes after the install. **Gates:** each of the three gates — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all -- --nocapture` — is a one-line step after that log. The log step also has no `set +` line, so bash's exit-on-error holds. **Elsewhere:** `rustup check`, `RUSTUP_TOOLCHAIN` and `rustup override` appear nowhere. `fail-fast: false`, `os: [ubuntu-latest, windows-latest]` and `runs-on: ${{ matrix.os }}` are present on non-comment lines. No non-comment line at any level — workflow, job, matrix or step — starts with `if:`, `continue-on-error:` or `exclude:`, so nothing can skip or excuse a leg or a step. |
 
 ## T-002 — README toolchain section
@@ -66,13 +72,13 @@ The README section was also read in full at close; see the test report.
   was run: `cargo +stable test --test cli <name> -- --exact`. `+stable` keeps a
   mutated toolchain file from choosing the compiler. The file was then
   restored, and every restore was confirmed byte-identical.
-- **What was mutated.** The working tree of `fb943c2`: the tested head's
+- **What was mutated.** The working tree of `56bd757`: the tested head's
   `rust-toolchain.toml`, workflow and README, run against its tests.
 - **What each row shows.** Every change failed at its intended assertion. No
   row failed to compile.
 
 Rows 1–11 are the locked plan's mutations. Rows 12–29 and 36–38 were added
-after critique round 1, and rows 30–35 after round 2.
+after critique round 1, rows 30–35 after round 2, and row 39 after round 3.
 
 | # | Change | Test | Assertion message |
 |---|--------|------|-------------------|
@@ -114,6 +120,7 @@ after critique round 1, and rows 30–35 after round 2.
 | 36 | README: install before update in the command block | README | `the update comes before the install; the install alone updates nothing` |
 | 37 | README: `To pin` present only outside the Toolchain section | README | `Toolchain section must say "To pin"` |
 | 38 | README: `## Toolchain` heading removed | README | `a ## Toolchain section` |
+| 39 | legacy `rust-toolchain` file (`1.96.0`) added beside `rust-toolchain.toml` | toolchain | `no legacy rust-toolchain file may outrank rust-toolchain.toml` |
 
 "toolchain" is `test_toolchain_file_declares_channel_and_components`,
 "workflow" is `test_ci_updates_installs_and_logs_in_order`, and "README" is
@@ -138,7 +145,7 @@ The test plan requires these to be observed on the tested head, not asserted
 by a test.
 
 - **The channel is `stable` at close.**
-  `git show fb943c2:rust-toolchain.toml` has, on line 4, `channel = "stable"`.
+  `git show 56bd757:rust-toolchain.toml` has, on line 4, `channel = "stable"`. No `rust-toolchain` file exists at the root.
   The working tree matches.
 - **No crate was added.** Literal `cargo tree` output at the tested head:
 

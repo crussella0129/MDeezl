@@ -1,6 +1,6 @@
 # Sprint 2 Unit Test Results
 
-- **Tested head:** `fb943c2074bf4a6315b6b8adca4b103445c557c3` (branch `dev`)
+- **Tested head:** `56bd7577b677311d3f3f936bb2e7cd07649514db` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Host:** Windows 11, `rustc 1.98.1` / `cargo 1.98.1`, `rustup 1.29.0`, `git 2.54.0.windows.1`. CI ran the same Rust with `rustup 1.29.1` and git 2.55.0; see the test report.
 - **Result:** 68 passed, 0 failed, 0 ignored. That is the same 68 unit tests
@@ -11,7 +11,7 @@
 
 The test plan states "Unit Tests: None". This sprint changes configuration and
 documentation: `rust-toolchain.toml`, the CI workflow and the README.
-`src/main.rs` is untouched, and `git diff 7b2cba7..fb943c2 -- src/` is empty.
+`src/main.rs` is untouched, and `git diff 7b2cba7..56bd757 -- src/` is empty.
 The new checks read repository files through the real test binary, so they are
 recorded in [e2e-tests.md](e2e-tests.md).
 

@@ -2,9 +2,9 @@
 
 - **Intents:** [INT-0005](../../../intents/INT-0005-reproducible-toolchain.md)
 - **Result, by part:**
-  - **CI log gate, equality half:** passed on both legs, in two runs.
-  - **CI log gate, lag-correction half:** **not exercised** in CI. Both update
-    steps reported `unchanged`. This half is not counted as passed; see below.
+  - **CI log gate, equality half:** passed on both legs, in all four runs.
+  - **CI log gate, lag-correction half:** **not exercised** in CI. Every update
+    step reported `unchanged`. This half is not counted as passed; see below.
   - **Pinned CI gate:** passed on both legs. It was consent-gated.
   - **Local pin check:** passed.
   - **Failure path of a one-command step:** not executed for the rustup steps.
@@ -28,11 +28,14 @@ logs remain on the linked runs.
     a push to `dev` at `60a529a83a4c00032286efe1772ccf7216342800`, with the
     round-1 structural tests;
   - [35426602219](https://github.com/crussella0129/MDeezl/actions/runs/35426602219),
-    a push to `dev` at `fb943c2074bf4a6315b6b8adca4b103445c557c3`, **the tested
-    head**, with the round-2 tests.
-- **Workflow and toolchain file are the same in all three.** The heads differ
+    a push to `dev` at `fb943c2074bf4a6315b6b8adca4b103445c557c3`, with the
+    round-2 tests;
+  - [35426964502](https://github.com/crussella0129/MDeezl/actions/runs/35426964502),
+    a push to `dev` at `56bd7577b677311d3f3f936bb2e7cd07649514db`, **the tested
+    head**, with the round-3 tests.
+- **Workflow and toolchain file are the same in all four.** The heads differ
   only in `tests/cli.rs` and the Book's records.
-- **Conclusion:** success on both legs of all three runs. The table quotes the
+- **Conclusion:** success on both legs of all four runs. The table quotes the
   first run; the tested-head run's lines are listed after it.
 
 | Log line | `ubuntu-latest` (job 105820355337) | `windows-latest` (job 105820355363) |
@@ -46,9 +49,10 @@ logs remain on the linked runs.
 On both legs, line 3 equals the version `X` in line 2. That satisfies the
 equality half of the EARS clause.
 
-**The tested-head run** (35426602219: jobs 105853547277 on `ubuntu-latest` and
-105853547372 on `windows-latest`) logged the same sequence on both legs, as did
-run 35426031839 (jobs 105852014420 and 105852014191):
+**The tested-head run** (35426964502: jobs 105854493258 on `ubuntu-latest` and
+105854493396 on `windows-latest`) logged the same sequence on both legs, as
+did runs 35426031839 (jobs 105852014420 and 105852014191) and 35426602219 (jobs
+105853547277 and 105853547372):
 
 - pre-update: `rustc 1.98.1 (48a229cea 2026-09-01)`;
 - update step: `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.98.1 (48a229cea 2026-09-01)`
@@ -107,7 +111,7 @@ evidence when it appears.
 |----------|-----------------------------------|-------------------------------------|
 | pre-update `rustc +stable --version` | `rustc 1.98.1 (48a229cea 2026-09-01)` | `rustc 1.98.1 (48a229cea 2026-09-01)` |
 | update step (abridged) | `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.98.1 …` | `stable-x86_64-pc-windows-msvc unchanged - rustc 1.98.1 …` |
-| no-argument install (three lines) | `info: downloading 5 components` / `info: the active toolchain `1.96.0-x86_64-unknown-linux-gnu` has been installed` / `info: it's active because: overridden by '/home/runner/work/MDeezl/MDeezl/rust-toolchain.toml'` | `info: downloading 5 components` / `info: the active toolchain `1.96.0-x86_64-pc-windows-msvc` has been installed` / `info: it's active because: overridden by 'D:\a\MDeezl\MDeezl\rust-toolchain.toml'` |
+| no-argument install (three lines) | `info: downloading 5 components` / ``info: the active toolchain `1.96.0-x86_64-unknown-linux-gnu` has been installed`` / `info: it's active because: overridden by '/home/runner/work/MDeezl/MDeezl/rust-toolchain.toml'` | `info: downloading 5 components` / ``info: the active toolchain `1.96.0-x86_64-pc-windows-msvc` has been installed`` / `info: it's active because: overridden by 'D:\a\MDeezl\MDeezl\rust-toolchain.toml'` |
 | post-install `rustc --version` | `rustc 1.96.0 (ac68faa20 2026-05-25)` | `rustc 1.96.0 (ac68faa20 2026-05-25)` |
 | cargo / clippy (abridged) | `cargo 1.96.0`, `clippy 0.1.96` | `cargo 1.96.0`, `clippy 0.1.96` |
 | gates (summary) | fmt, clippy `-D warnings` and tests green; 68 + 54 passed | fmt, clippy `-D warnings` and tests green; 68 + 54 passed |
@@ -121,7 +125,7 @@ pin, which shows that `+stable` keeps a pinned file from installing itself into
 that reading.
 
 This run used the first-round tests at `6f07237`. The structural tests of the
-tested head `fb943c2` read files only, and do not depend on the compiler
+tested head `56bd757` read files only, and do not depend on the compiler
 version. They were run under the same 1.96.0 pin locally, in the full-suite
 pass-mutation: 68 + 54 passed. They were not re-run under a pin in CI, because the user's consent
 covered one throwaway pull request.
