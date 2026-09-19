@@ -1,0 +1,20 @@
+[package]
+name = "mdeezl-gui"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "MDeezl's desktop app: one window over the CLI's own engine."
+repository = "https://github.com/crussella0129/MDeezl"
+publish = false
+
+# Exactly these, by design (INT-0006): the engine, a window, a folder picker.
+# glow rather than wgpu keeps ~43 crates out; `wayland` stays on because
+# `accesskit` already brings winit's Wayland backend, and without it glutin
+# cannot open a window on a Wayland session.
+[dependencies]
+mdeezl = { path = ".." }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "default_fonts", "accesskit", "x11", "wayland"] }
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
+
+[dev-dependencies]
+egui_kittest = { version = "0.36.2", features = ["eframe"] }

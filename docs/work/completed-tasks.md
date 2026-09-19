@@ -296,3 +296,36 @@
     is unedited: `git diff --numstat 24442f1 -- tests/cli.rs` reads `252 0`.
   - **Gates:** fmt and clippy `-D warnings` are clean.
 - **Commit:** `4aac0a78d49e3bea55efe015f49eb43df144e4bc`
+
+## T-003 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `Cargo.toml`, `Cargo.lock`, `gui/Cargo.toml`, `gui/src/lib.rs`,
+  `gui/src/main.rs`, `gui/tests/app.rs`
+- **Summary:** A new workspace member, `mdeezl-gui`.
+  - **Dependencies.** Exactly `mdeezl` by path, `eframe` 0.36.2 (glow,
+    default fonts, accesskit, x11, wayland; default features off), and `rfd`
+    0.17.2 (xdg-portal only). The only dev-dependency is `egui_kittest` with
+    its `eframe` feature.
+  - **The window.** It shows the heading `MDeezl` and exactly the workflow's
+    widgets:
+    - a `Source` field, hinted "Folder path or https:// URL", with `Browse…`;
+    - `fence`/`inline`/`none` radios, with fence selected;
+    - `Respect .gitignore`, checked;
+    - an `Output folder` field, defaulting to the home folder, with `Browse…`;
+    - a `Generate` button, whose behaviour arrives in T-004.
+  - **Input.** A folder dropped anywhere on the window becomes the source.
+    `App::options()` maps the fields onto the CLI's defaults.
+  - **Launcher.** A release build is a windowed program.
+- **Verification:**
+  - **Tests.** Five egui_kittest tests drive the real `eframe::App` headlessly
+    through `Harness::new_eframe`: `test_gui_manifest_dependencies`,
+    `test_app_has_exactly_the_controls` (widget counts by AccessKit role, and
+    the placeholder), `test_app_defaults`, `test_options_follow_the_fields`
+    and `test_dropped_folder_fills_source`.
+  - **Gates.** `cargo fmt --all --check` and
+    `cargo clippy --workspace --all-targets -- -D warnings` are clean, and
+    every test passes.
+  - **Dependencies.** `cargo tree -p mdeezl` still reports only `mdeezl`.
+- **Commit:** PENDING
