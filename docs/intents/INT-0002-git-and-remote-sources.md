@@ -2,8 +2,8 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0002
-- **State:** proposed
-- **Work evidence:** none
+- **State:** planned
+- **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-002 URL sources](../sprints/s3/sprint-plans/build-plan.md#t-002-url-sources)
 - **Completion evidence:** none
 - **Code evidence:** none
 - **Test evidence:** none
@@ -61,9 +61,14 @@ pure-`std` shape if entangled with it.
   - **Failures are fast and clean.** With `GIT_TERMINAL_PROMPT=0` and the
     credential helper disabled, a missing repository failed in 0.4 s (exit
     128, "terminal prompts disabled") and left no directory behind.
-  - **Only `https://` and `http://` count as URLs.** Anything else is a path.
-    Git itself read `ftp:/weird` as an ssh address, so the tool must decide
-    what a URL is.
+  - **Only `https://`, `http://` and `file://` count as URLs.** Anything else
+    is a path. Git itself read `ftp:/weird` as an ssh address, so the tool must
+    decide what a URL is. `file://` is a URL git clones, and accepting it lets
+    the whole remote path be tested offline.
+  - **The heading records the source.** For a URL source, the document's
+    heading is `# <url>`, and the tree root is the repository's name. That uses
+    the existing heading line rather than adding any new element to the
+    format, so local-path output stays byte-identical.
 
 ## Consequences
 
@@ -80,3 +85,7 @@ pure-`std` shape if entangled with it.
   half is scheduled ahead of the git-ref half, which backlog T-103 keeps. The
   measured clone mechanism was added under Alternatives. Two criteria were
   added: no waiting on a person, and removal of the temporary copy.
+- 2026-09-19: amended while `proposed`, at sprint 3 planning. Two decisions
+  were added: `file://` counts as a URL, and a URL source's heading is its URL.
+- 2026-09-19: `proposed → planned` for sprint 3. Work evidence: T-002 delivers
+  the remote half. The git-ref half and its criterion stay in backlog T-103.

@@ -2,8 +2,8 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0006
-- **State:** proposed
-- **Work evidence:** none
+- **State:** planned
+- **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-003 GUI crate, controls and worker](../sprints/s3/sprint-plans/build-plan.md#t-003-gui-crate-controls-and-worker)
 - **Completion evidence:** none
 - **Code evidence:** none
 - **Test evidence:** none
@@ -95,6 +95,13 @@ stack to a project that has so far had no runtime dependencies at all.
 - **CI grows.** Both legs compile the GUI, which takes about 35 s cold on the
   development host. The Linux leg may need system libraries for windowing,
   which is to be confirmed in CI.
+- **On Linux the window is X11 only.** eframe's and rfd's Wayland features are
+  left out. X11 and GL are loaded at run time, so no system packages are needed
+  to build, and Wayland desktops run the app through XWayland. Native Wayland
+  is one feature flag away if it is ever wanted.
+- **The CI gate lines change.** `fmt` and `clippy` must cover the workspace,
+  and [INT-0005](INT-0005-reproducible-toolchain.md)'s guard test pins those
+  lines, so the two change together.
 - **The engine becomes a library.** The CLI becomes a thin wrapper over it.
   Notices the engine used to print to stderr must reach the GUI as data.
 - **Remote URLs are fetched with git.** A URL source is fetched through
@@ -105,3 +112,5 @@ stack to a project that has so far had no runtime dependencies at all.
 - 2026-09-19: created as `proposed` at the sprint 3 boundary. The user asked
   for a minimal egui frontend with a weasel logo in place of the backlog items
   that were offered.
+- 2026-09-19: `proposed → planned` for sprint 3. The plan was approved, and
+  work evidence was attached: tasks T-001 and T-003 to T-006.
