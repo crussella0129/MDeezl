@@ -441,4 +441,4 @@
     heading was centred. The user's verdict on the weasel is taken in the
     Test Phase.
   - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
-- **Commit:** PENDING
+- **Commit:** `5963acea9a633e54ab4ccc81aa0faaa7528796f2`
