@@ -25,12 +25,15 @@ logs remain on the linked runs.
     a push to `dev` at `6f0723712e24d461e37cbff56126294ea6e36ef4`, with the
     first-round tests;
   - [35426031839](https://github.com/crussella0129/MDeezl/actions/runs/35426031839),
-    a push to `dev` at `60a529a83a4c00032286efe1772ccf7216342800`, **the tested
-    head**, with the structural tests.
-- **Workflow and toolchain file are the same in both.** The two heads differ
-  only in `tests/cli.rs`.
-- **Conclusion:** success on both legs of both runs. The table quotes the first
-  run; the second run's lines are listed after it.
+    a push to `dev` at `60a529a83a4c00032286efe1772ccf7216342800`, with the
+    round-1 structural tests;
+  - [35426602219](https://github.com/crussella0129/MDeezl/actions/runs/35426602219),
+    a push to `dev` at `fb943c2074bf4a6315b6b8adca4b103445c557c3`, **the tested
+    head**, with the round-2 tests.
+- **Workflow and toolchain file are the same in all three.** The heads differ
+  only in `tests/cli.rs` and the Book's records.
+- **Conclusion:** success on both legs of all three runs. The table quotes the
+  first run; the tested-head run's lines are listed after it.
 
 | Log line | `ubuntu-latest` (job 105820355337) | `windows-latest` (job 105820355363) |
 |----------|-----------------------------------|-------------------------------------|
@@ -43,8 +46,9 @@ logs remain on the linked runs.
 On both legs, line 3 equals the version `X` in line 2. That satisfies the
 equality half of the EARS clause.
 
-**The tested-head run** (35426031839: jobs 105852014420 on `ubuntu-latest` and
-105852014191 on `windows-latest`) logged the same sequence on both legs:
+**The tested-head run** (35426602219: jobs 105853547277 on `ubuntu-latest` and
+105853547372 on `windows-latest`) logged the same sequence on both legs, as did
+run 35426031839 (jobs 105852014420 and 105852014191):
 
 - pre-update: `rustc 1.98.1 (48a229cea 2026-09-01)`;
 - update step: `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.98.1 (48a229cea 2026-09-01)`
@@ -58,11 +62,11 @@ equality half of the EARS clause.
 Tests: `68 passed` and `54 passed` on both legs. There are no SKIP lines on
 Linux, and the four platform SKIPs on Windows, each printing its reason.
 
-**The update path was not exercised in this run.** Both update steps report
+**The update path was not exercised in these runs.** Every update step reports
 `unchanged`: the runner images had already moved from 1.98.0, which sprint 1
 saw, to 1.98.1, the true current stable. The test plan says an `unchanged`
-leg must be recorded as not exercised, not counted as passed. What this run
-does show:
+leg must be recorded as not exercised, not counted as passed. What these runs
+do show:
 
 - the update step runs, exits 0, and reports its version in the required form;
 - the post-install toolchain is the true current stable.
@@ -116,10 +120,10 @@ on first use. The `+stable` pre-update reading also stayed at 1.98.1 under the
 pin, which shows that `+stable` keeps a pinned file from installing itself into
 that reading.
 
-This run used the first-round tests at `6f07237`. The structural tests of
-`60a529a` read files only, and do not depend on the compiler version. They were
-run under the same 1.96.0 pin locally, in the full-suite pass-mutation: 68 + 54
-passed. They were not re-run under a pin in CI, because the user's consent
+This run used the first-round tests at `6f07237`. The structural tests of the
+tested head `fb943c2` read files only, and do not depend on the compiler
+version. They were run under the same 1.96.0 pin locally, in the full-suite
+pass-mutation: 68 + 54 passed. They were not re-run under a pin in CI, because the user's consent
 covered one throwaway pull request.
 
 ## Pin check — local
@@ -159,4 +163,6 @@ fresh consent. It is deferred on the following evidence.
 
 The structural test now guarantees each rustup step stays a one-line step, with
 no `continue-on-error:` or `if:` that could excuse or skip a failure (mutations
-21–23 in [e2e-tests.md](e2e-tests.md)).
+21–23 in [e2e-tests.md](e2e-tests.md)). It also guarantees that no
+`continue-on-error:`, `if:` or `exclude:` exists at job or matrix level
+(mutations 30–32), so a leg cannot be excused or dropped either.

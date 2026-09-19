@@ -1,12 +1,12 @@
 # Sprint 2 End-to-End Test Results
 
 - **Status:** possible. All end-to-end coverage the test plan promised is implemented.
-- **Tested head:** `60a529a83a4c00032286efe1772ccf7216342800` (branch `dev`)
+- **Tested head:** `fb943c2074bf4a6315b6b8adca4b103445c557c3` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Local result:** 54 passed, 0 failed, 0 ignored, on Windows 11 with
   `rustc 1.98.1`. That is the 51 end-to-end tests that closed sprint 1, run
-  **unedited**, plus 3 new. `git diff --numstat 7b2cba7 60a529a -- tests/cli.rs`
-  reads `211 0`, insertions only.
+  **unedited**, plus 3 new. `git diff --numstat 7b2cba7 fb943c2 -- tests/cli.rs`
+  reads `230 0`, insertions only.
 - **CI result:** see the test report for the run on the tested head. The Linux
   leg printed no SKIP lines. The Windows leg printed the same four platform
   SKIPs as sprint 1, each with its reason.
@@ -19,7 +19,7 @@ also read with `include_str!` by unedited sprint 0 and sprint 1 tests. Deleting
 either of those still breaks compilation of the test binary, which fails the
 suite just as surely, but not as one named test.
 
-## Revision after test critique round 1
+## Revisions after the test critique
 
 The first versions of the two T-001 tests matched plain substrings. The critic
 showed that commenting out the update, install and version-log steps left them
@@ -34,12 +34,23 @@ INT-0005's last criterion says must fail. It was confirmed and fixed in
   re-run on the new tests. It now includes commenting out, disabling with
   `if:` or `continue-on-error:`, merging, and moving each gate.
 
+Round 2 returned `proceed-with-caveats`. It verified every round-1 fix against
+the code and CI, and found that keys **above** step level still passed:
+
+- a job-level `continue-on-error`, or a matrix `exclude:`, could drop or excuse
+  the Windows leg;
+- `RUSTUP_TOOLCHAIN` or `rustup override` could outrank the toolchain file;
+- `set +e` could defeat the bash log step.
+
+`fb943c2` closes these, and six more mutations (rows 30–35) confirm it. The
+whole table was re-run against `fb943c2`.
+
 ## T-001 — toolchain file and CI steps
 
 | Test | EARS clause verified |
 |------|----------------------|
 | `test_toolchain_file_declares_channel_and_components` | Within the `[toolchain]` table only, with comments stripped: `channel` is a quoted, non-empty TOML string, in either `"…"` or `'…'` form, and `components` is a closed one-line array whose quoted items include `rustfmt` and `clippy`. It deliberately accepts any channel, so a pin stays a one-file change. That the channel is `stable` at close is a close-time inspection; see the test report. |
-| `test_ci_updates_installs_and_logs_in_order` | The workflow is parsed into its steps, with comment lines dropped. **Each is its own step:** `run: rustc +stable --version`, `run: rustup update --no-self-update stable` and `run: rustup toolchain install --no-self-update` must each be a step made of exactly that one line. That rules out merging, adding an argument, and any `if:` or `continue-on-error:`. **Order:** they come in that order. **One log step:** a single step then holds `shell: bash` and all five of `rustc`, `cargo`, `cargo clippy`, `rustup` and `git --version`, with no `if:` or `continue-on-error:`. It comes after the install. **Gates:** each of the three gates — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all -- --nocapture` — is a one-line step after that log. **Elsewhere:** `rustup check` appears nowhere. `fail-fast: false`, `os: [ubuntu-latest, windows-latest]` and `runs-on: ${{ matrix.os }}` are present on non-comment lines. |
+| `test_ci_updates_installs_and_logs_in_order` | The workflow is parsed into its steps, with comment lines dropped. **Each is its own step:** `run: rustc +stable --version`, `run: rustup update --no-self-update stable` and `run: rustup toolchain install --no-self-update` must each be a step made of exactly that one line. That rules out merging, adding an argument, and any `if:` or `continue-on-error:`. **Order:** they come in that order. **One log step:** a single step then holds `shell: bash` and all five of `rustc`, `cargo`, `cargo clippy`, `rustup` and `git --version`, with no `if:` or `continue-on-error:`. It comes after the install. **Gates:** each of the three gates — `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test --all -- --nocapture` — is a one-line step after that log. The log step also has no `set +` line, so bash's exit-on-error holds. **Elsewhere:** `rustup check`, `RUSTUP_TOOLCHAIN` and `rustup override` appear nowhere. `fail-fast: false`, `os: [ubuntu-latest, windows-latest]` and `runs-on: ${{ matrix.os }}` are present on non-comment lines. No non-comment line at any level — workflow, job, matrix or step — starts with `if:`, `continue-on-error:` or `exclude:`, so nothing can skip or excuse a leg or a step. |
 
 ## T-002 — README toolchain section
 
@@ -55,13 +66,13 @@ The README section was also read in full at close; see the test report.
   was run: `cargo +stable test --test cli <name> -- --exact`. `+stable` keeps a
   mutated toolchain file from choosing the compiler. The file was then
   restored, and every restore was confirmed byte-identical.
-- **What was mutated.** The working tree of `60a529a`: the tested head's
+- **What was mutated.** The working tree of `fb943c2`: the tested head's
   `rust-toolchain.toml`, workflow and README, run against its tests.
 - **What each row shows.** Every change failed at its intended assertion. No
   row failed to compile.
 
-Rows 1–11 are the locked plan's mutations; rows 12–32 were added in response
-to the test critique.
+Rows 1–11 are the locked plan's mutations. Rows 12–29 and 36–38 were added
+after critique round 1, and rows 30–35 after round 2.
 
 | # | Change | Test | Assertion message |
 |---|--------|------|-------------------|
@@ -94,9 +105,15 @@ to the test critique.
 | 27 | clippy gate given `continue-on-error: true` | workflow | `workflow must have the one-line step "run: cargo clippy --all-targets -- -D warnings"` |
 | 28 | `runs-on` hard-coded to `ubuntu-latest` | workflow | `workflow must keep "runs-on: ${{ matrix.os }}"` |
 | 29 | `windows-latest` dropped from the matrix | workflow | `workflow must keep "os: [ubuntu-latest, windows-latest]"` |
-| 30 | README: install before update in the command block | README | `the update comes before the install; the install alone updates nothing` |
-| 31 | README: `To pin` present only outside the Toolchain section | README | `Toolchain section must say "To pin"` |
-| 32 | README: `## Toolchain` heading removed | README | `a ## Toolchain section` |
+| 30 | job-level `continue-on-error: ${{ matrix.os == 'windows-latest' }}` | workflow | `no continue-on-error: may skip or excuse a leg or step: "continue-on-error: ${{ matrix.os == 'windows-latest' }}"` |
+| 31 | matrix `exclude:` of `windows-latest` | workflow | `no exclude: may skip or excuse a leg or step: "exclude:"` |
+| 32 | job-level `if: github.event_name == 'push'` | workflow | `no if: may skip or excuse a leg or step: "if: github.event_name == 'push'"` |
+| 33 | workflow-level `env: RUSTUP_TOOLCHAIN: stable` | workflow | `workflow must not use "RUSTUP_TOOLCHAIN"` |
+| 34 | `- run: rustup override set stable` step before the install | workflow | `workflow must not use "rustup override"` |
+| 35 | `set +e` added to the version-log step | workflow | `the version-log step must keep bash's exit-on-error` |
+| 36 | README: install before update in the command block | README | `the update comes before the install; the install alone updates nothing` |
+| 37 | README: `To pin` present only outside the Toolchain section | README | `Toolchain section must say "To pin"` |
+| 38 | README: `## Toolchain` heading removed | README | `a ## Toolchain section` |
 
 "toolchain" is `test_toolchain_file_declares_channel_and_components`,
 "workflow" is `test_ci_updates_installs_and_logs_in_order`, and "README" is
@@ -121,7 +138,7 @@ The test plan requires these to be observed on the tested head, not asserted
 by a test.
 
 - **The channel is `stable` at close.**
-  `git show 60a529a:rust-toolchain.toml` has, on line 4, `channel = "stable"`.
+  `git show fb943c2:rust-toolchain.toml` has, on line 4, `channel = "stable"`.
   The working tree matches.
 - **No crate was added.** Literal `cargo tree` output at the tested head:
 

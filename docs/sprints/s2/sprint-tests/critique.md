@@ -1,8 +1,16 @@
 # Test Critique — Sprint 2
 
-Round 1 of the read-only test critic, from the installed bundle's
-`prompts/test-critic.md`, with the primary agent's resolution under each
-concern. A second round follows once the evidence has changed.
+Read-only test critic rounds from the installed bundle's
+`prompts/test-critic.md`. The primary agent's resolution follows each concern.
+
+| Round | Verdict | Concerns |
+|-------|---------|----------|
+| 1 | `block` | 12 |
+| 2 | `proceed-with-caveats` | 3 |
+
+Round 2 re-verified all twelve round-1 resolutions against `60a529a`, git, and
+the four cited CI runs, and found them to hold as recorded. The round-2
+concerns follow the round-1 ones.
 
 ## Concerns
 
@@ -60,7 +68,7 @@ concern. A second round follows once the evidence has changed.
 - **Failure mode:** weak-assertion
 - **Why it matters:** Swapping the two commands, which breaks the procedure, would still pass.
 - **Suggested response:** tighten-assertion
-- **Resolution:** fixed. The search is scoped to the `## Toolchain` section, and the update must come before the install. Mutations 30–32 fail. A close-time semantic reading is recorded in `e2e-tests.md`.
+- **Resolution:** fixed. The search is scoped to the `## Toolchain` section, and the update must come before the install. Mutations 36–38 fail (numbered 30–32 in round 1). A close-time semantic reading is recorded in `e2e-tests.md`.
 
 ### C-008: Mutation results lack a commit and the failure output
 - **Where:** `e2e-tests.md` Mutation check
@@ -102,5 +110,29 @@ concern. A second round follows once the evidence has changed.
 - **Suggested response:** tighten-assertion (record)
 - **Resolution:** fixed. The first claim is now limited to `rust-toolchain.toml`. Abridged cells are marked, and the intro says so.
 
+### R2 C-001: Job-level keys can drop or excuse the Windows leg with every checked line intact
+- **Where:** `test_ci_updates_installs_and_logs_in_order`; `INT-0005` criteria 2 and 7
+- **Quote:** "The structural test now guarantees each rustup step stays a one-line step, with no `continue-on-error:` or `if:` that could excuse or skip a failure"
+- **Failure mode:** weak-assertion
+- **Why it matters:** A job-level `continue-on-error: ${{ matrix.os == 'windows-latest' }}` or a matrix `exclude:` passed. `workflow_steps` reads only step bodies.
+- **Suggested response:** tighten-assertion
+- **Resolution:** fixed in `fb943c2`. No non-comment line at any level may start with `if:`, `continue-on-error:` or `exclude:`. Mutations 30–32 fail.
+
+### R2 C-002: Toolchain overrides and `set +e` leave every checked line in place
+- **Where:** `test_ci_updates_installs_and_logs_in_order`; build-plan T-001 EARS 4
+- **Quote:** "the workflow stops updating, stops installing from the file, or stops logging versions"
+- **Failure mode:** weak-assertion
+- **Why it matters:** `RUSTUP_TOOLCHAIN` or `rustup override` would outrank a pin, and `set +e` would defeat the bash log step.
+- **Suggested response:** tighten-assertion
+- **Resolution:** fixed in `fb943c2`. `RUSTUP_TOOLCHAIN` and `rustup override` may not appear anywhere, and the log step may hold no `set +` line. Mutations 33–35 fail. The full table of 38 was re-run against `fb943c2`. CI run 35426602219 passed on both legs at `fb943c2`.
+
+### R2 C-003: The lag-correction open observation has no trigger or owner
+- **Where:** `INT-0005` Consequences, "Open observation"; `docs/work/tasks.md`
+- **Quote:** "The first CI log whose update step reads `updated` should be attached here as evidence when it appears."
+- **Failure mode:** intent-coverage
+- **Why it matters:** If INT-0005 closes `realized`, nobody is prompted to revisit the observation.
+- **Suggested response:** defer-with-rationale
+- **Resolution:** backlog item T-106 now owns it, and INT-0005's observation names it. The test report states explicitly whether INT-0005 may be `realized` while lag correction rests on one host measurement.
+
 ## Confidence
-block
+proceed-with-caveats

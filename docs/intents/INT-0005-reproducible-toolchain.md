@@ -125,7 +125,8 @@ stable was 1.98.1.
   the development host, where 1.96.0 moved to 1.98.1. The first CI log whose
   update step reads `updated` should be attached here as evidence when it
   appears. That happens when a new stable ships before the runner images pick
-  it up.
+  it up. Backlog item T-106 owns this, and each sprint's Test Phase checks the
+  update line until it is done.
 
 ## Transition history
 - 2026-09-18: created as `proposed` at the close of sprint 1, from the toolchain
