@@ -295,4 +295,4 @@
   - **Totals:** 78 unit and 61 end-to-end tests pass, and every earlier test
     is unedited: `git diff --numstat 24442f1 -- tests/cli.rs` reads `252 0`.
   - **Gates:** fmt and clippy `-D warnings` are clean.
-- **Commit:** PENDING
+- **Commit:** `4aac0a78d49e3bea55efe015f49eb43df144e4bc`
