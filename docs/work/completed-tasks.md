@@ -179,3 +179,28 @@
   first failed on case and on line wrapping, and were fixed in the test rather
   than by bending the README.
 - **Commit:** `b3c5183ff5d904073d12e786adedd7792fb56699`
+
+## T-001 (sprint 2)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-09-18
+- **Touched:** `rust-toolchain.toml`, `.github/workflows/sprint-loops-ci.yml`,
+  `tests/cli.rs`
+- **Summary:** A new `rust-toolchain.toml` names `channel = "stable"` with
+  `rustfmt` and `clippy`; pinning is replacing that one word with a version.
+  CI now logs the image's own stable with `rustc +stable --version`, runs
+  `rustup update --no-self-update stable` and then the no-argument
+  `rustup toolchain install --no-self-update`, each as its own step, and logs
+  rustc, cargo, clippy, rustup and git under bash before the gates. The update
+  comes first because the no-argument install answers "using existing
+  install" rather than updating. Rustup's update-check subcommand is absent
+  because it exits 100 whenever any update exists. Both OS legs,
+  `fail-fast: false` and `--nocapture` are unchanged.
+- **Verification:** two new tests,
+  `test_toolchain_file_declares_channel_and_components` and
+  `test_ci_updates_installs_and_logs_in_order`. Neither requires `stable`, so a
+  pin stays a one-file change. On rustc 1.98.1: fmt clean, clippy
+  `-D warnings` clean, 68 unit and 53 end-to-end tests passing. All eleven
+  planned mutations fail their named test; the pin to the installed 1.96.0
+  passes the full suite with rustc reporting 1.96.0.
+- **Commit:** PENDING

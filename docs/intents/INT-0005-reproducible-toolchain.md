@@ -2,7 +2,7 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0005
-- **State:** planned
+- **State:** active
 - **Work evidence:** [Sprint 2 build plan](../sprints/s2/sprint-plans/build-plan.md), [T-001 toolchain file and CI steps](../sprints/s2/sprint-plans/build-plan.md#t-001-toolchain-file-and-ci-steps)
 - **Completion evidence:** none
 - **Code evidence:** none
@@ -160,3 +160,5 @@ stable was 1.98.1.
   - **Pinning's install path and step structure.** The pinned version may be
     installed by the no-argument install or by auto-install on first use, and
     each command is its own CI step.
+- 2026-09-18: `planned → active`; sprint 2 Build Phase began T-001 and T-002.
+  Backlog item T-105 was consumed by those two tasks.

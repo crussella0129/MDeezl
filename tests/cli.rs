@@ -1253,3 +1253,93 @@ fn test_cli_nested_repository_not_filtered() {
         "not inside the nested repository"
     );
 }
+
+// ======================= Sprint 2: toolchain policy (INT-0005) =======================
+
+/// Read a repository file at runtime, not with `include_str!`, so a deleted
+/// file fails one named test instead of breaking compilation of this file.
+/// CRLF is normalised: the Windows runner checks files out with CRLF.
+fn repo_file(rel: &str) -> String {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
+    fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("{rel} must exist: {e}"))
+        .replace("\r\n", "\n")
+}
+
+/// T-001. The file names a channel and both components. It deliberately does
+/// NOT require `stable`: pinning must stay a one-line change to the file, and
+/// a test demanding `stable` would make it a two-file change.
+#[test]
+fn test_toolchain_file_declares_channel_and_components() {
+    let toml = repo_file("rust-toolchain.toml");
+    let lines: Vec<&str> = toml.lines().map(str::trim).collect();
+    assert!(lines.contains(&"[toolchain]"), "a [toolchain] table");
+    let channel = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("channel = \""))
+        .and_then(|rest| rest.strip_suffix('"'));
+    assert!(
+        matches!(channel, Some(c) if !c.is_empty()),
+        "a non-empty channel, stable or a pinned version"
+    );
+    let components = lines
+        .iter()
+        .find(|l| l.starts_with("components"))
+        .expect("a components line");
+    for c in ["\"rustfmt\"", "\"clippy\""] {
+        assert!(components.contains(c), "components must list {c}");
+    }
+}
+
+/// T-001. CI records the image's stable, updates, installs, records what it
+/// now uses, then runs the gates -- in that order, one command per step.
+#[test]
+fn test_ci_updates_installs_and_logs_in_order() {
+    let wf = repo_file(".github/workflows/sprint-loops-ci.yml");
+    let pos = |needle: &str, from: usize| -> usize {
+        wf[from..]
+            .find(needle)
+            .map(|i| i + from)
+            .unwrap_or_else(|| panic!("workflow must contain {needle:?} after byte {from}"))
+    };
+
+    let pre = pos("rustc +stable --version", 0);
+    let update = pos("- run: rustup update --no-self-update stable\n", 0);
+    // Ends at the newline: no toolchain argument, so the file decides.
+    let install = pos("- run: rustup toolchain install --no-self-update\n", 0);
+    assert!(pre < update, "image version is logged before the update");
+    assert!(update < install, "update comes before the install");
+
+    let post = pos("rustc --version", install);
+    let mut log_end = post;
+    for needle in [
+        "cargo --version",
+        "cargo clippy --version",
+        "rustup --version",
+        "git --version",
+    ] {
+        log_end = log_end.max(pos(needle, install));
+    }
+    let fmt = pos("cargo fmt --check", 0);
+    assert!(
+        log_end < fmt,
+        "the toolchain is logged before the gates run"
+    );
+
+    // The post-install log's own step runs under bash on both legs.
+    let step_start = wf[..post].rfind("\n      - ").expect("step start");
+    let step_end = wf[post..]
+        .find("\n      - ")
+        .map(|i| i + post)
+        .unwrap_or(wf.len());
+    assert!(
+        wf[step_start..step_end].contains("shell: bash"),
+        "the version log must run under bash so any failing line fails it"
+    );
+
+    // Exits 100 whenever any update exists; would fail CI for no code reason.
+    assert!(!wf.contains("rustup check"));
+    // INT-0001's two-OS criterion must not regress.
+    assert!(wf.contains("fail-fast: false"));
+    assert!(wf.contains("cargo test --all -- --nocapture"));
+}
