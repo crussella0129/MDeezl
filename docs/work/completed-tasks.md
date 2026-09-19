@@ -203,4 +203,4 @@
   `-D warnings` clean, 68 unit and 53 end-to-end tests passing. All eleven
   planned mutations fail their named test; the pin to the installed 1.96.0
   passes the full suite with rustc reporting 1.96.0.
-- **Commit:** PENDING
+- **Commit:** `f9913c8a2097204babb2bea15d8c6d39cf676ce9`
