@@ -2,8 +2,8 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0005
-- **State:** proposed
-- **Work evidence:** none
+- **State:** planned
+- **Work evidence:** [Sprint 2 build plan](../sprints/s2/sprint-plans/build-plan.md), [T-001 toolchain file and CI steps](../sprints/s2/sprint-plans/build-plan.md#t-001-toolchain-file-and-ci-steps)
 - **Completion evidence:** none
 - **Code evidence:** none
 - **Test evidence:** none
@@ -25,25 +25,43 @@ check; pinning git.
 
 - A `rust-toolchain.toml` at the repository root names the channel, `stable`
   by default, and the `rustfmt` and `clippy` components.
-- CI installs or updates exactly the toolchain the file names on every run,
-  using `rustup toolchain install` with no argument. Under `stable`, CI
-  therefore runs the true current stable, not the runner image's pre-installed
-  one, which lags the release. Under a pinned version, CI runs exactly that
-  version.
+- CI brings itself to exactly the toolchain the file names on every run. It
+  runs `rustup update --no-self-update stable`, then
+  `rustup toolchain install --no-self-update`, before any gate. Under `stable`,
+  CI therefore runs the true current stable, not the runner image's
+  pre-installed one, which lags the release. Under a pinned version, CI runs
+  exactly that version: it is installed by the second command, or by rustup's
+  auto-install on first use. Each of the two commands is its own CI step, so a
+  failure in either fails the run on both shells.
 - **Pinning is a one-line change:** replacing `stable` with a version such as
   `1.98.1` makes both local and CI use that version, with no other edit.
-- Every CI run records the exact `rustc`, `cargo`, `clippy`, and `git` versions
-  it used in its log, so a drift failure diagnoses itself.
-- The README states the policy, how to bring a local toolchain level with CI,
-  and how to pin.
+- Every CI run records its toolchain in the log, so a drift failure diagnoses
+  itself:
+  - before the update, the runner image's own stable, via
+    `rustc +stable --version` so a pinned file cannot auto-install over it;
+  - the update step's own report of whether stable was `updated` or
+    `unchanged`, and to what;
+  - after the install, `rustc`, `cargo`, `clippy`, `rustup`, and `git`.
+
+  `rustup check` is **not** used: it exits 100 whenever any update is available,
+  including rustup's own, which would fail the step for no code reason.
+- The README states the policy, the commands that bring a local toolchain level
+  with CI, how to pin, the rustup version the commands were verified with, and
+  how to upgrade an older rustup.
 - Git's version floats with the CI runner image and is not pinned. The
   git-dependent behaviours that matter are covered by tests that run on
   whichever git executes them; the README says so.
 - CI keeps both `ubuntu-latest` and `windows-latest` legs and `--nocapture`, so
   INT-0001's two-OS criterion does not regress.
-- A test fails if the policy's shape is quietly reverted: the toolchain file
-  disappears or loses a component, or the workflow stops installing from it or
-  logging versions.
+- A test fails if the policy's shape is quietly reverted, without blocking a
+  legitimate pin:
+  - the toolchain file disappears, loses its channel, or loses a component;
+  - the workflow stops updating, stops installing from the file, or stops
+    logging versions;
+  - the workflow reorders those steps.
+
+  The test does **not** require the channel to be `stable`. A test that did
+  would make pinning a two-file change.
 
 ## Rationale
 
@@ -61,12 +79,21 @@ resolved to the locally installed 1.96.0. There were in fact three different
 - the runner image's, 1.98.0;
 - the host's, 1.96.0.
 
-Tracking stable does not happen on its own on any side. The lever that makes it
-happen is `rustup toolchain install` with no argument. Its own help text says it
-installs or updates the active toolchain, updating by default. Run where the
-file is, it tracks stable when the file says `stable` and installs the pin when
-the file names a version. That one lever is what lets a single mechanism serve
-the user's hybrid policy.
+Tracking stable does not happen on its own on any side. Research first read
+`rustup toolchain install`'s help — "install or update … by default the active
+toolchain" — as updating by default. **Measurement showed otherwise.** With no
+argument it answered "using existing install" and left `stable` at 1.96.0. It
+installs only a toolchain that is missing.
+
+The mechanism is therefore two commands:
+
+1. `rustup update stable` moves tracking-mode CI to the true current stable.
+2. `rustup toolchain install` then installs whatever version the file pins.
+
+In tracking mode the second is a no-op; in pinned mode the first is harmless.
+Pinning stays a one-line edit to the file. It was measured to take effect with
+no download: pinning to the already-installed 1.96.0 gave that version while
+stable was 1.98.1.
 
 ## Alternatives
 
@@ -87,7 +114,7 @@ the user's hybrid policy.
   chosen default. The pin is its remedy.
 - **Local can still fall behind.** Nothing forces a contributor to update. CI's
   version log makes the cause obvious when it happens, and the README gives the
-  one command that fixes it.
+  two commands that fix it.
 - **Updating the development host's `stable` is machine-wide.** It changes the
   Rust used by every other project on that machine that tracks stable.
 - **CI runs grow slightly,** by one toolchain install or update per leg.
@@ -101,3 +128,35 @@ the user's hybrid policy.
   measured finding that a toolchain file alone does not update, together with
   the `rustup toolchain install` lever that serves both modes. Added the
   machine-wide and CI-red-on-new-lint consequences.
+- 2026-09-18: `proposed → planned` for sprint 2. Work evidence attached. The
+  plan was approved together with the machine-wide update of the development
+  host's `stable` toolchain, which the plan put to the user explicitly.
+- 2026-09-18: amended while `planned`, from the sprint 2 plan critique, which
+  returned `block`. Research had misread `rustup toolchain install`'s help as
+  "updates by default". Measurement showed the no-argument form leaves an
+  installed `stable` untouched. The CI criterion now names both commands:
+  `rustup update stable`, then the no-argument install for a pin. Also sharpened:
+  - the version-log criterion, which now records before and after the update,
+    plus `rustup check`;
+  - the README criterion, which now names the rustup version the commands need;
+  - the regression-test criterion, which must not require `stable`, since that
+    would make a pin a two-file change.
+- 2026-09-18: amended while `planned`, from the second sprint 2 plan critique,
+  which returned `block`. Each change was measured on the development host
+  first.
+  - **Dropped `rustup check` from the version log.** It exited 100 because an
+    update was available, and under `bash -eo pipefail` that would fail CI for no
+    code reason. The update step's own `updated` or `unchanged` report replaces
+    it.
+  - **The pre-update log uses `rustc +stable --version`.** In a pinned directory
+    a bare `rustc` reported the pin (1.96.0) while `+stable` reported 1.98.1, and
+    under a pin rustup's auto-install could otherwise record the pin as the
+    image's toolchain.
+  - **Clarified the rustup-version criterion.** Neither the rustup
+    documentation nor its changelog states the minimum version for installing
+    the active toolchain with no argument, so the criterion now names the
+    verified version and the upgrade path. It no longer asks for a minimum no
+    source establishes.
+  - **Pinning's install path and step structure.** The pinned version may be
+    installed by the no-argument install or by auto-install on first use, and
+    each command is its own CI step.
