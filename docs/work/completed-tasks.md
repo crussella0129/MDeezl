@@ -179,3 +179,48 @@
   first failed on case and on line wrapping, and were fixed in the test rather
   than by bending the README.
 - **Commit:** `b3c5183ff5d904073d12e786adedd7792fb56699`
+
+## T-001 (sprint 2)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-09-18
+- **Touched:** `rust-toolchain.toml`, `.github/workflows/sprint-loops-ci.yml`,
+  `tests/cli.rs`
+- **Summary:** A new `rust-toolchain.toml` names `channel = "stable"` with
+  `rustfmt` and `clippy`; pinning is replacing that one word with a version.
+  CI now logs the image's own stable with `rustc +stable --version`, runs
+  `rustup update --no-self-update stable` and then the no-argument
+  `rustup toolchain install --no-self-update`, each as its own step, and logs
+  rustc, cargo, clippy, rustup and git under bash before the gates. The update
+  comes first because the no-argument install answers "using existing
+  install" rather than updating. Rustup's update-check subcommand is absent
+  because it exits 100 whenever any update exists. Both OS legs,
+  `fail-fast: false` and `--nocapture` are unchanged.
+- **Verification:** two new tests,
+  `test_toolchain_file_declares_channel_and_components` and
+  `test_ci_updates_installs_and_logs_in_order`. Neither requires `stable`, so a
+  pin stays a one-file change. On rustc 1.98.1: fmt clean, clippy
+  `-D warnings` clean, 68 unit and 53 end-to-end tests passing. All eleven
+  planned mutations fail their named test; the pin to the installed 1.96.0
+  passes the full suite with rustc reporting 1.96.0.
+- **Commit:** `f9913c8a2097204babb2bea15d8c6d39cf676ce9`
+
+## T-002 (sprint 2)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-09-18
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** A new README "Toolchain" section, placed before "Not yet". It
+  states the policy and names `rust-toolchain.toml`. It explains that a
+  `stable` file does not update anything, and gives the two commands that
+  bring a checkout level with CI: `rustup update stable`, then
+  `rustup toolchain install`. It warns that the first is machine-wide. It
+  covers how to pin and unpin, and the deliberate trade-off that a new stable
+  can turn CI red. It says git's version floats with the runner image, and
+  that the commands were verified with rustup 1.29, with `rustup self update`
+  as the upgrade path.
+- **Verification:** `test_readme_documents_toolchain_policy` asserts the nine
+  literal strings from the build plan. Removing any one of them fails the
+  test, all nine checked. fmt and clippy `-D warnings` are clean; 68 unit and
+  54 end-to-end tests pass on rustc 1.98.1.
+- **Commit:** `22a4cdd75935c4fb894c33324c4bafbed05632a4`

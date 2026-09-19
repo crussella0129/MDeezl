@@ -25,6 +25,29 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # The runner image's own stable, before anything changes it. `+stable`
+      # so that a pinned rust-toolchain.toml cannot auto-install the pin into
+      # this reading.
+      - run: rustc +stable --version
+      # Bring the toolchain to exactly what rust-toolchain.toml names (see
+      # INT-0005). One command per step, so each step's result is that one
+      # command's own on both shells. The update comes first because the
+      # no-argument install does not update an installed toolchain -- measured:
+      # it answers "using existing install". It only installs a missing one,
+      # which is how a pinned version arrives.
+      - run: rustup update --no-self-update stable
+      - run: rustup toolchain install --no-self-update
+      # The toolchain this run actually uses. bash on both legs, so any failing
+      # line fails the step. Rustup's update-check subcommand is deliberately
+      # absent: it exits 100 whenever any update exists, rustup's own included,
+      # which would fail this step for no code reason.
+      - shell: bash
+        run: |
+          rustc --version
+          cargo --version
+          cargo clippy --version
+          rustup --version
+          git --version
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       # --nocapture so a platform-gated test's SKIP line is visible in the log
