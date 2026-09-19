@@ -464,4 +464,4 @@
 - **Verification:** two new tests, `test_readme_scopes_std_only_to_the_engine`
   and `test_readme_documents_desktop_app`, each scoped to its section. 78 unit,
   63 end-to-end and 26 GUI tests pass. fmt and clippy are clean.
-- **Commit:** PENDING
+- **Commit:** `31713946e3dafe0043ca7858c25c899499ef76f2`
