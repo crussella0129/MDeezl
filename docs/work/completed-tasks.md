@@ -252,4 +252,4 @@
   - **Results:** 69 unit and 56 end-to-end tests pass. That includes all 122
     earlier tests, unedited.
   - **Gates:** fmt and clippy `-D warnings` are clean.
-- **Commit:** PENDING
+- **Commit:** `efca63fdd447e582a001291a5cbe0e1c306f54cb`
