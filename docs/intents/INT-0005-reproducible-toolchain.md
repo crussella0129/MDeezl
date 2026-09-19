@@ -186,3 +186,10 @@ stable was 1.98.1.
   carried 1.98.1. Its outcome — CI runs the true current stable — held in every
   run. The mechanism rests on one host measurement, and the gap is carried as
   the open observation under Consequences, owned by backlog T-106.
+- 2026-09-19: noted during sprint 3 planning, with no state change. The gate
+  commands widen to cover the new workspace: `cargo fmt --all --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings`. They still check
+  the same things, over one more crate. The guard test's pinned lines change
+  with them, and its mutation check is re-run. The desktop app's eframe needs
+  Rust 1.95 or later, so a pin must name 1.95 or newer; pinning stays a
+  one-line change.

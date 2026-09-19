@@ -266,3 +266,13 @@ minus `--include`, with no second hidden mechanism layered on top.
   byte-identical output" holds for the same tree and the same git state. The
   "gitignore parsing" non-goal is fulfilled by INT-0004, by delegation to git
   rather than by parsing.
+- 2026-09-19: noted during sprint 3 planning, with no state change. Two
+  follow-on intents now touch this chapter's criteria without rewriting them:
+  - **The `# <root name>` title.** For a URL source,
+    [INT-0002](INT-0002-git-and-remote-sources.md) makes the title the URL,
+    and the tree root the repository's name. Local-path output is unchanged
+    byte for byte.
+  - **The zero-dependency property.** It is scoped to the `mdeezl` crate, the
+    engine and CLI. The desktop app of
+    [INT-0006](INT-0006-desktop-gui.md) lives in its own workspace crate, with
+    its own dependencies. `cargo tree -p mdeezl` still reports only `mdeezl`.

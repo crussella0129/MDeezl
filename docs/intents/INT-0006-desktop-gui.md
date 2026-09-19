@@ -57,7 +57,7 @@ with *MDeezl*.
   `ubuntu-latest` and `windows-latest`.
 - **Documented.** The README says how to launch the app.
 - **The weasel is judged by a person.** The app draws it itself, with no image
-  files or image decoders. Whether it reads as a weasel is a human judgement,
+  file and no image decoding for the logo. Whether it reads as a weasel is a human judgement,
   so the user verifies it from a screenshot.
 
 ## Rationale
@@ -82,9 +82,14 @@ stack to a project that has so far had no runtime dependencies at all.
 - **The GUI spawns the `mdeezl` binary.** It keeps the core untouched, but two
   executables must then ship and be found together. The core's stderr notices
   would also have to be screen-scraped.
-- **An image-file logo, such as SVG or PNG.** Rendering it needs a decoder: an
-  SVG renderer measured at 31 more crates. Drawing the weasel with egui's own
-  shapes costs none.
+- **An SVG logo.** Its renderer measured at 31 more crates.
+- **A PNG logo.** It would cost almost nothing, because eframe already links an
+  image decoder with PNG support. It was not chosen because no raster weasel
+  exists to ship. Code-drawn shapes stay sharp at any display scale, and one
+  shape list feeds both the hero and the window icon.
+- **The wgpu renderer**, eframe's default. It measured at 43 more crates than
+  glow. Its advantage is a software fallback on machines without OpenGL 2+.
+  Not chosen for a minimal first build; switching is a one-feature change.
 
 ## Consequences
 
@@ -93,12 +98,19 @@ stack to a project that has so far had no runtime dependencies at all.
   native folder dialog. Measured on Windows, the GUI crate builds roughly 130
   crates.
 - **CI grows.** Both legs compile the GUI, which takes about 35 s cold on the
-  development host. The Linux leg may need system libraries for windowing,
-  which is to be confirmed in CI.
-- **On Linux the window is X11 only.** eframe's and rfd's Wayland features are
-  left out. X11 and GL are loaded at run time, so no system packages are needed
-  to build, and Wayland desktops run the app through XWayland. Native Wayland
-  is one feature flag away if it is ever wanted.
+  development host.
+- **The Linux build needs no system packages.** That is expected from the
+  sources, and the first CI run confirms it: the windowing, GL, Wayland and
+  D-Bus libraries are all loaded at run time.
+- **The Linux window supports both X11 and Wayland.** eframe's `wayland`
+  feature must stay on. `accesskit` already brings in winit's Wayland backend,
+  which picks Wayland whenever `WAYLAND_DISPLAY` is set, and without eframe's
+  `wayland` feature glutin cannot open that window.
+- **The window needs OpenGL 2+.** That comes with the glow renderer. A machine
+  without GPU drivers may fail to open it; the wgpu renderer is the remedy.
+- **Generate replaces an existing `<name>.md`.** The document is written to a
+  temporary sibling file and renamed over the target in one step, so a failed
+  run never damages an earlier good file.
 - **The CI gate lines change.** `fmt` and `clippy` must cover the workspace,
   and [INT-0005](INT-0005-reproducible-toolchain.md)'s guard test pins those
   lines, so the two change together.
@@ -114,3 +126,15 @@ stack to a project that has so far had no runtime dependencies at all.
   that were offered.
 - 2026-09-19: `proposed → planned` for sprint 3. The plan was approved, and
   work evidence was attached: tasks T-001 and T-003 to T-006.
+- 2026-09-19: amended while `planned`, from the sprint 3 plan critique, which
+  returned `block`. The critic verified each change against the crate sources.
+  - **Wayland back on.** The X11-only choice would have failed to open a window
+    on Wayland desktops.
+  - **Alternatives corrected.** The wgpu and PNG alternatives now state their
+    real costs, and the OpenGL 2+ runtime requirement is recorded.
+  - **Logo criterion reworded.** It now says "no image decoding for the logo",
+    because eframe links a PNG decoder regardless.
+  - **Overwrite rule added.** Generate replaces an existing file through a
+    temporary sibling and a rename.
+
+  The plan's tasks are now T-001 and T-003 to T-007.

@@ -56,6 +56,24 @@ pure-`std` shape if entangled with it.
   - **It stays dependency-free.** Rust's standard library has no HTTPS client,
     so the alternative is linking a TLS stack.
   - **It works for every provider's plain HTTPS clone URL.**
+  - **The fetch is hardened so it can never wait on a person.** The measured
+    command is
+    `git -c credential.helper= -c core.askPass= -c core.autocrlf=false clone --depth 1 --quiet -- <url> <dest>`.
+    It runs with:
+    - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never` and
+      `GIT_ALLOW_PROTOCOL=https:http:file` set;
+    - `GIT_ASKPASS`, `SSH_ASKPASS` and the repository-local variables removed.
+
+    Why each part is needed:
+    - **Terminal prompts are only one of git's four prompt routes.** The
+      other three are `GIT_ASKPASS`, `core.askPass` and `SSH_ASKPASS`.
+    - **An `insteadOf` rule can rewrite an https URL to ssh.** The allow-list
+      turns that into a fast failure: "transport 'ssh' not allowed", in 122 ms.
+    - **The committed bytes are kept.** `core.autocrlf=false` stops a Windows
+      system config from converting line endings, so the bundle holds the
+      repository's content as committed, the same on every OS.
+    - **No console window.** On Windows, git is spawned with
+      `CREATE_NO_WINDOW`, so a windowed caller never flashes a console.
   - **It was measured with git 2.54:** a one-commit public repository cloned
     in 0.9 s.
   - **Failures are fast and clean.** With `GIT_TERMINAL_PROMPT=0` and the
@@ -85,7 +103,12 @@ pure-`std` shape if entangled with it.
   half is scheduled ahead of the git-ref half, which backlog T-103 keeps. The
   measured clone mechanism was added under Alternatives. Two criteria were
   added: no waiting on a person, and removal of the temporary copy.
-- 2026-09-19: amended while `proposed`, at sprint 3 planning. Two decisions
-  were added: `file://` counts as a URL, and a URL source's heading is its URL.
 - 2026-09-19: `proposed → planned` for sprint 3. Work evidence: T-002 delivers
   the remote half. The git-ref half and its criterion stay in backlog T-103.
+- 2026-09-19: amended while `planned`, at sprint 3 planning. Two decisions
+  were added: `file://` counts as a URL, and a URL source's heading is its URL.
+- 2026-09-19: amended while `planned`, from the sprint 3 plan critique. The
+  fetch was hardened against the other prompt routes (askpass, and ssh
+  reached through an `insteadOf` rewrite), keeps committed bytes with
+  `core.autocrlf=false`, and spawns git without a console window on Windows.
+  All of it was measured before being recorded.
