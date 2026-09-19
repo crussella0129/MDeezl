@@ -329,3 +329,48 @@
     every test passes.
   - **Dependencies.** `cargo tree -p mdeezl` still reports only `mdeezl`.
 - **Commit:** `3b92bb1863615c0a695c4cb16d20ed1282b5e8bf`
+
+## T-004 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `gui/src/lib.rs`, `gui/tests/app.rs`
+- **Summary:** Generate now works.
+  - **Validation.** An empty source or output folder is named in the status,
+    and no job starts.
+  - **The job.** Otherwise `App::generate` returns at once, already working,
+    and runs the job on a worker thread. The job is injectable, and defaults
+    to `mdeezl::bundle`.
+  - **The write.** The worker writes `.<stem>.md.mdeezl-tmp`, then renames it
+    over `<stem>.md`. On failure only the temporary file is removed, so an
+    earlier good file survives.
+  - **The file name.** `output_stem` falls back to `bundle` for an empty name,
+    `.`, `..`, or anything with `/`, `\` or `:`.
+  - **Reporting.** The worker reports `Wrote <path> (<size>)` plus each
+    notice, then wakes the window with `request_repaint`.
+  - **`App::tick`.** Called from `eframe::App::logic`, so it runs even while
+    the window is minimised. It does four things:
+    - collects the result;
+    - treats a disconnected channel, such as a panicked job, as
+      `The job stopped unexpectedly`;
+    - shows `Fetching…` or `Bundling…`, from the source captured at Generate;
+    - requests a repaint every 100 ms while working.
+  - **Closing.** A close requested while working gets `CancelClose` and the
+    status `Closing when the current job finishes…`. `Close` follows once the
+    job ends, and its echo is not cancelled.
+  - **Disabled while working.** Generate cannot be pressed during a job.
+  - **Drop.** Dropping a `Worker`, and so the `App`, joins its thread.
+- **Verification:**
+  - **Tests.** 17 new egui_kittest tests; 22 GUI tests in all, stable over
+    three runs.
+  - **Deviations from the plan's test wording.** There are two:
+    1. The worker's wake-up is asserted in its own test,
+       `test_worker_wakes_the_window`, on a context with no pass run. egui
+       calls the repaint callback only for a request sooner than one already
+       pending, and a logic pass with input events queues an immediate
+       repaint, so it cannot be observed after one.
+    2. In `test_generate_writes_engine_bytes`, the source is typed through
+       AccessKit, but the output folder is set on the state. Its field holds
+       the home folder, and typing would append to that.
+  - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
+- **Commit:** PENDING

@@ -2,13 +2,23 @@
 //! engine. Name a folder or a URL, choose the format, choose where the `.md`
 //! goes, and press Generate.
 
-use std::path::PathBuf;
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, mpsc};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
 use eframe::egui;
-use mdeezl::{Options, Wrap};
+use mdeezl::{Bundle, Options, Wrap};
 
 /// The window's size: room for the controls and the status line, no more.
 const WINDOW_SIZE: [f32; 2] = [520.0, 600.0];
+
+/// How often a working app looks for its result, even with no input.
+const POLL: Duration = Duration::from_millis(100);
+
+const CLOSING: &str = "Closing when the current job finishes…";
 
 /// How eframe should open the window.
 pub fn native_options() -> eframe::NativeOptions {
@@ -27,7 +37,68 @@ pub fn home_folder() -> String {
     std::env::var(var).unwrap_or_else(|_| ".".to_string())
 }
 
-/// The app's state: the four controls' values.
+/// `N bytes`, `N.N KB` or `N.N MB`.
+pub fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    match bytes {
+        b if b < KB => format!("{b} bytes"),
+        b if b < KB * KB => format!("{:.1} KB", b as f64 / KB as f64),
+        b => format!("{:.1} MB", b as f64 / (KB * KB) as f64),
+    }
+}
+
+/// The output file's stem: the bundle's name, unless that could leave the
+/// output folder or is not a plain name -- a bundled filesystem root falls
+/// back to its whole path, for one. Stated by characters, the same on every OS.
+pub fn output_stem(name: &str) -> &str {
+    if name.is_empty() || name == "." || name == ".." || name.contains(['/', '\\', ':']) {
+        "bundle"
+    } else {
+        name
+    }
+}
+
+/// What Generate runs: `mdeezl::bundle` in the app, a stand-in in tests.
+pub type Job = Arc<dyn Fn(&Options) -> io::Result<Bundle> + Send + Sync>;
+
+/// Write `<dir>/<stem>.md` through a temporary sibling and one rename, so a
+/// failure can never damage an earlier good file or leave a partial one.
+fn write_output(dir: &Path, bundle: &Bundle) -> Result<PathBuf, String> {
+    let stem = output_stem(&bundle.name);
+    let target = dir.join(format!("{stem}.md"));
+    let temp = dir.join(format!(".{stem}.md.mdeezl-tmp"));
+    let written = fs::write(&temp, &bundle.document).and_then(|()| fs::rename(&temp, &target));
+    match written {
+        Ok(()) => Ok(target),
+        Err(e) => {
+            let _ = fs::remove_file(&temp);
+            Err(format!("could not write {}: {e}", target.display()))
+        }
+    }
+}
+
+/// A job in flight: its result arrives once, on `rx`.
+struct Worker {
+    rx: mpsc::Receiver<Result<String, String>>,
+    handle: Option<JoinHandle<()>>,
+    /// Chosen when Generate was pressed, so editing the field mid-job cannot
+    /// change it.
+    label: &'static str,
+}
+
+/// Dropping a worker waits for its thread. A closing window must not strand
+/// a job, because a job's temporary clone is removed only when it ends. The
+/// close deferral in [`App::tick`] normally makes this instant; this is the
+/// backstop, and it is also how a finished job's thread is reaped.
+impl Drop for Worker {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
+
+/// The app's state: the four controls' values, and the job behind Generate.
 pub struct App {
     /// A folder path or a URL, exactly as typed.
     pub source: String,
@@ -35,6 +106,12 @@ pub struct App {
     pub use_gitignore: bool,
     /// The folder `<name>.md` is written into.
     pub output: String,
+    job: Job,
+    worker: Option<Worker>,
+    status: String,
+    status_is_error: bool,
+    /// The window asked to close while working; close once the job ends.
+    close_pending: bool,
 }
 
 impl Default for App {
@@ -44,11 +121,22 @@ impl Default for App {
             wrap: Wrap::Fence,
             use_gitignore: true,
             output: home_folder(),
+            job: Arc::new(mdeezl::bundle),
+            worker: None,
+            status: String::new(),
+            status_is_error: false,
+            close_pending: false,
         }
     }
 }
 
 impl App {
+    /// Replace what Generate runs.
+    pub fn with_job(mut self, job: Job) -> Self {
+        self.job = job;
+        self
+    }
+
     /// The options the engine runs with: the CLI's defaults plus the fields.
     pub fn options(&self) -> Options {
         Options {
@@ -56,6 +144,122 @@ impl App {
             wrap: self.wrap,
             use_gitignore: self.use_gitignore,
             ..Options::default()
+        }
+    }
+
+    pub fn is_working(&self) -> bool {
+        self.worker.is_some()
+    }
+
+    /// The status line's text.
+    pub fn status(&self) -> &str {
+        &self.status
+    }
+
+    pub fn status_is_error(&self) -> bool {
+        self.status_is_error
+    }
+
+    fn fail(&mut self, message: impl Into<String>) {
+        self.status = message.into();
+        self.status_is_error = true;
+    }
+
+    /// Start a job on a worker thread, and return at once, already working.
+    /// The worker bundles, writes the file, and wakes the window.
+    pub fn generate(&mut self, ctx: &egui::Context) {
+        if self.is_working() {
+            return;
+        }
+        if self.source.trim().is_empty() {
+            return self.fail("Choose a folder or URL");
+        }
+        if self.output.trim().is_empty() {
+            return self.fail("Choose an output folder");
+        }
+        let options = self.options();
+        let dir = PathBuf::from(&self.output);
+        let job = Arc::clone(&self.job);
+        let ctx = ctx.clone();
+        let (tx, rx) = mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let result = job(&options).map_err(|e| e.to_string()).and_then(|bundle| {
+                let path = write_output(&dir, &bundle)?;
+                let mut message = format!(
+                    "Wrote {} ({})",
+                    path.display(),
+                    format_size(bundle.document.len() as u64)
+                );
+                for notice in &bundle.notices {
+                    message.push('\n');
+                    message.push_str(notice);
+                }
+                Ok(message)
+            });
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
+        let label = if mdeezl::is_url(&self.source) {
+            "Fetching…"
+        } else {
+            "Bundling…"
+        };
+        self.worker = Some(Worker {
+            rx,
+            handle: Some(handle),
+            label,
+        });
+        self.status = label.to_string();
+        self.status_is_error = false;
+    }
+
+    /// Everything that must happen even while the window is minimised:
+    /// eframe's `logic` calls this before every `ui`, and on its own when no
+    /// `ui` pass runs. Collects the result, defers a close while a job runs,
+    /// and keeps waking the window until the job ends.
+    pub fn tick(&mut self, ctx: &egui::Context) {
+        if self.is_working() && ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.close_pending = true;
+        }
+        if let Some(worker) = &self.worker {
+            let arrived = match worker.rx.try_recv() {
+                Ok(result) => Some(result),
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Some(Err("The job stopped unexpectedly".to_string()))
+                }
+                Err(mpsc::TryRecvError::Empty) => None,
+            };
+            if let Some(result) = arrived {
+                self.finish(result);
+            }
+        }
+        match &self.worker {
+            Some(worker) => {
+                self.status = if self.close_pending {
+                    CLOSING
+                } else {
+                    worker.label
+                }
+                .to_string();
+                ctx.request_repaint_after(POLL);
+            }
+            None if self.close_pending => {
+                self.close_pending = false;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            None => {}
+        }
+    }
+
+    fn finish(&mut self, result: Result<String, String>) {
+        self.worker = None;
+        match result {
+            Ok(message) => {
+                self.status = message;
+                self.status_is_error = false;
+            }
+            Err(message) => self.fail(message),
         }
     }
 
@@ -100,8 +304,22 @@ impl App {
             });
             ui.add_space(16.0);
 
-            // Present from the start; T-004 gives it its worker.
-            let _ = ui.button("Generate");
+            let generate = ui.add_enabled(!self.is_working(), egui::Button::new("Generate"));
+            if generate.clicked() {
+                self.generate(ui.ctx());
+            }
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if self.is_working() {
+                    ui.spinner();
+                }
+                let text = egui::RichText::new(&self.status);
+                if self.status_is_error {
+                    ui.label(text.color(ui.visuals().error_fg_color));
+                } else {
+                    ui.label(text);
+                }
+            });
         });
     }
 
@@ -123,6 +341,10 @@ fn pick_folder_into(field: &mut String) {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.tick(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.draw(ui);
     }

@@ -1,19 +1,22 @@
 //! The desktop app, driven headlessly through egui_kittest: the real
 //! `eframe::App` runs frame by frame with no window and no GPU.
 
+use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::{Duration, Instant};
 
 use eframe::egui::{
-    self,
+    self, ViewportCommand, ViewportEvent, ViewportId,
     accesskit::{Role, Toggled},
 };
 use egui_kittest::{
     Harness,
     kittest::{NodeT, Queryable},
 };
-use mdeezl::{Options, Wrap};
-use mdeezl_gui::{App, home_folder};
+use mdeezl::{Bundle, Options, Wrap};
+use mdeezl_gui::{App, Job, format_size, home_folder, output_stem};
 
 /// A temp directory that removes itself, even when an assertion panics.
 struct Tmp(PathBuf);
@@ -164,12 +167,10 @@ fn test_app_defaults() {
 fn test_options_follow_the_fields() {
     for wrap in [Wrap::Fence, Wrap::Inline, Wrap::None] {
         for use_gitignore in [true, false] {
-            let app = App {
-                source: "some/folder".to_string(),
-                wrap,
-                use_gitignore,
-                ..App::default()
-            };
+            let mut app = App::default();
+            app.source = "some/folder".to_string();
+            app.wrap = wrap;
+            app.use_gitignore = use_gitignore;
             assert_eq!(
                 app.options(),
                 Options {
@@ -205,4 +206,523 @@ fn test_dropped_folder_fills_source() {
         .push(Arc::new(Dropped(dir.to_path_buf())));
     h.step();
     assert_eq!(h.state().source, dir.display().to_string());
+}
+
+// ======================= T-004: Generate =======================
+
+/// Hands a gated job its release, and reports whether and how often it ran.
+struct Gate {
+    release: mpsc::Sender<()>,
+    done: Arc<AtomicBool>,
+    calls: Arc<AtomicUsize>,
+}
+
+impl Gate {
+    fn release(&self) {
+        let _ = self.release.send(());
+    }
+}
+
+/// A job that waits for the test to release it, then returns `result()`.
+fn gated_job(result: impl Fn() -> io::Result<Bundle> + Send + Sync + 'static) -> (Job, Gate) {
+    let (tx, rx) = mpsc::channel::<()>();
+    let rx = Mutex::new(rx);
+    let done = Arc::new(AtomicBool::new(false));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let (job_done, job_calls) = (Arc::clone(&done), Arc::clone(&calls));
+    let job: Job = Arc::new(move |_: &Options| {
+        job_calls.fetch_add(1, Ordering::SeqCst);
+        let _ = rx.lock().unwrap().recv();
+        let r = result();
+        job_done.store(true, Ordering::SeqCst);
+        r
+    });
+    (
+        job,
+        Gate {
+            release: tx,
+            done,
+            calls,
+        },
+    )
+}
+
+fn gated_bundle() -> io::Result<Bundle> {
+    Ok(Bundle {
+        name: "gated".to_string(),
+        document: "gated document\n".to_string(),
+        notices: Vec::new(),
+    })
+}
+
+/// An app with its source, output and job set.
+fn app_with(source: &str, output: &Path, job: Option<Job>) -> App {
+    let mut app = App::default();
+    if let Some(job) = job {
+        app = app.with_job(job);
+    }
+    app.source = source.to_string();
+    app.output = output.display().to_string();
+    app
+}
+
+/// Step until the job ends, never `run()`: `run()` panics while the app keeps
+/// requesting repaints, which a working app does on purpose.
+fn wait_idle(h: &mut Harness<'_, App>) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while h.state().is_working() {
+        assert!(Instant::now() < deadline, "the job did not end within 10 s");
+        std::thread::sleep(Duration::from_millis(10));
+        h.step();
+    }
+    h.step();
+}
+
+fn root_commands(h: &Harness<'_, App>) -> Vec<ViewportCommand> {
+    h.output()
+        .viewport_output
+        .get(&ViewportId::ROOT)
+        .map(|v| v.commands.clone())
+        .unwrap_or_default()
+}
+
+fn push_close(h: &mut Harness<'_, App>) {
+    h.input_mut()
+        .viewports
+        .entry(ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(ViewportEvent::Close);
+}
+
+/// A plain folder, not a git work tree, with two files.
+fn plain_fixture(tag: &str) -> Tmp {
+    let dir = tmp_dir(tag);
+    std::fs::create_dir(dir.join("src")).unwrap();
+    std::fs::write(dir.join("src/a.rs"), "fn a() {}\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "some notes\n").unwrap();
+    dir
+}
+
+fn entries(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+fn no_temp_files(dir: &Path) -> bool {
+    !entries(dir).iter().any(|n| n.ends_with(".mdeezl-tmp"))
+}
+
+/// T-004.
+#[test]
+fn test_format_size() {
+    for (bytes, text) in [
+        (0, "0 bytes"),
+        (1023, "1023 bytes"),
+        (1024, "1.0 KB"),
+        (1536, "1.5 KB"),
+        (1_048_576, "1.0 MB"),
+    ] {
+        assert_eq!(format_size(bytes), text);
+    }
+}
+
+/// T-004. The file always lands inside the output folder, on every OS.
+#[test]
+fn test_output_stem_is_one_component() {
+    assert_eq!(output_stem("Hello-World"), "Hello-World");
+    assert_eq!(output_stem("repo.v2"), "repo.v2");
+    for bad in ["", ".", "..", "a/b", r"a\b", r"C:\", "c:x", "/"] {
+        assert_eq!(output_stem(bad), "bundle", "{bad:?}");
+    }
+}
+
+/// T-004. Generate returns at once, already working; the result then
+/// arrives from the worker.
+#[test]
+fn test_generate_marks_working_before_returning() {
+    let out = tmp_dir("marks-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    assert!(h.state().is_working());
+    gate.release();
+    wait_idle(&mut h);
+    assert!(
+        h.state().status().starts_with("Wrote "),
+        "{}",
+        h.state().status()
+    );
+    assert!(gate.done.load(Ordering::SeqCst));
+}
+
+/// T-004. While working, Generate is disabled and the window keeps waking.
+#[test]
+fn test_generate_disabled_while_working() {
+    let out = tmp_dir("disabled-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    h.get_by_label("Generate").click();
+    h.step();
+    h.step();
+    assert!(h.state().is_working());
+    assert!(h.get_by_label("Generate").accesskit_node().is_disabled());
+    let delay = h.output().viewport_output[&ViewportId::ROOT].repaint_delay;
+    assert!(delay <= Duration::from_millis(100), "{delay:?}");
+    gate.release();
+    wait_idle(&mut h);
+    assert!(!h.get_by_label("Generate").accesskit_node().is_disabled());
+}
+
+/// T-004. The label follows the source captured at Generate, not the field.
+#[test]
+fn test_status_names_fetching_or_bundling() {
+    let out = tmp_dir("label-out");
+    for (source, label, edit) in [
+        ("some/folder", "Bundling…", "file:///elsewhere"),
+        ("file:///some/repo", "Fetching…", "some/folder"),
+    ] {
+        let (job, gate) = gated_job(gated_bundle);
+        let mut h = harness(app_with(source, &out, Some(job)));
+        let ctx = h.ctx.clone();
+        h.state_mut().generate(&ctx);
+        h.step();
+        assert_eq!(h.state().status(), label);
+        h.state_mut().source = edit.to_string();
+        h.step();
+        assert_eq!(h.state().status(), label, "editing the field mid-job");
+        gate.release();
+        wait_idle(&mut h);
+    }
+}
+
+/// T-004. The engine's own bytes, typed in and clicked through the window.
+#[test]
+fn test_generate_writes_engine_bytes() {
+    let src = plain_fixture("engine-src");
+    let out = tmp_dir("engine-out");
+    let mut h = harness(App::default());
+    h.state_mut().output = out.display().to_string();
+    let path = src.display().to_string();
+    h.get_by_role_and_label(Role::TextInput, "Source").focus();
+    h.step();
+    h.get_by_role_and_label(Role::TextInput, "Source")
+        .type_text(&path);
+    h.step();
+    assert_eq!(h.state().source, path);
+    h.get_by_label("inline").click();
+    h.step();
+    h.get_by_label("Generate").click();
+    h.step();
+    wait_idle(&mut h);
+
+    let want = mdeezl::bundle(&Options {
+        root: PathBuf::from(&path),
+        wrap: Wrap::Inline,
+        ..Options::default()
+    })
+    .unwrap();
+    let name = src.file_name().unwrap().to_str().unwrap();
+    let written = std::fs::read(out.join(format!("{name}.md"))).unwrap();
+    assert!(
+        written == want.document.as_bytes(),
+        "the engine's own bytes"
+    );
+    let status = h.state().status();
+    assert!(status.starts_with("Wrote "), "{status}");
+    assert!(
+        status.contains(&format_size(want.document.len() as u64)),
+        "{status}"
+    );
+    assert!(no_temp_files(&out));
+}
+
+/// T-004. Notices reach the status line.
+#[test]
+fn test_generate_shows_notices() {
+    let src = plain_fixture("notice-src");
+    let out = tmp_dir("notice-out");
+    let mut h = harness(app_with(&src.display().to_string(), &out, None));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    let status = h.state().status();
+    assert!(status.starts_with("Wrote "), "{status}");
+    assert!(status.contains("gitignore filtering skipped:"), "{status}");
+}
+
+/// T-004. A failure leaves an earlier file exactly as it was.
+#[test]
+fn test_failed_job_keeps_existing_output() {
+    // A failed job.
+    let out = tmp_dir("keep-out");
+    std::fs::write(out.join("gated.md"), "earlier good file\n").unwrap();
+    let job: Job = Arc::new(|_: &Options| Err(io::Error::other("boom")));
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    assert_eq!(h.state().status(), "boom");
+    assert!(h.state().status_is_error());
+    assert_eq!(
+        std::fs::read_to_string(out.join("gated.md")).unwrap(),
+        "earlier good file\n"
+    );
+    assert!(no_temp_files(&out));
+
+    // A failed rename: the target is a directory.
+    let out = tmp_dir("rename-out");
+    std::fs::create_dir(out.join("gated.md")).unwrap();
+    let job: Job = Arc::new(|_: &Options| gated_bundle());
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    assert!(h.state().status_is_error());
+    assert!(
+        h.state().status().starts_with("could not write "),
+        "{}",
+        h.state().status()
+    );
+    assert!(out.join("gated.md").is_dir());
+    assert!(no_temp_files(&out));
+}
+
+/// T-004. A missing source folder: an error, and nothing written.
+#[test]
+fn test_generate_missing_folder_writes_nothing() {
+    let out = tmp_dir("missing-out");
+    let missing = out.join("no-such-folder");
+    let out_files = tmp_dir("missing-files");
+    let mut h = harness(app_with(&missing.display().to_string(), &out_files, None));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    assert!(h.state().status_is_error(), "{}", h.state().status());
+    assert!(entries(&out_files).is_empty());
+}
+
+/// T-004. An unreachable URL: an error without its credential, nothing
+/// written. Localhost only.
+#[test]
+fn test_generate_unreachable_url_writes_nothing() {
+    let out = tmp_dir("url-out");
+    let mut h = harness(app_with(
+        "https://user:SECRET@127.0.0.1:1/x.git",
+        &out,
+        None,
+    ));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    let status = h.state().status();
+    assert!(
+        status.starts_with("could not fetch https://127.0.0.1:1/x.git"),
+        "{status}"
+    );
+    assert!(!status.contains("SECRET"), "{status}");
+    assert!(entries(&out).is_empty());
+}
+
+/// T-004. An output "folder" that is a file: an error, the file untouched.
+#[test]
+fn test_generate_unwritable_output_writes_nothing() {
+    let src = plain_fixture("unwritable-src");
+    let holder = tmp_dir("unwritable-holder");
+    let not_a_folder = holder.join("a-file");
+    std::fs::write(&not_a_folder, "keep me\n").unwrap();
+    let mut h = harness(app_with(&src.display().to_string(), &not_a_folder, None));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    assert!(h.state().status_is_error(), "{}", h.state().status());
+    assert_eq!(std::fs::read_to_string(&not_a_folder).unwrap(), "keep me\n");
+    assert_eq!(entries(&holder), ["a-file"]);
+}
+
+/// T-004. An empty field is named, and no job starts.
+#[test]
+fn test_generate_requires_source_and_output() {
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(App::default().with_job(job));
+    let ctx = h.ctx.clone();
+    h.state_mut().source = "  ".to_string();
+    h.state_mut().generate(&ctx);
+    assert_eq!(h.state().status(), "Choose a folder or URL");
+    assert!(!h.state().is_working());
+    h.state_mut().source = "some/folder".to_string();
+    h.state_mut().output = String::new();
+    h.state_mut().generate(&ctx);
+    assert_eq!(h.state().status(), "Choose an output folder");
+    assert!(!h.state().is_working());
+    assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+}
+
+/// T-004. A job that panics ends with an error, and writes nothing.
+#[test]
+fn test_worker_panic_ends_job_with_error() {
+    let out = tmp_dir("panic-out");
+    let job: Job = Arc::new(|_: &Options| panic!("a deliberate test panic"));
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    assert_eq!(h.state().status(), "The job stopped unexpectedly");
+    assert!(h.state().status_is_error());
+    assert!(entries(&out).is_empty());
+}
+
+/// T-004. Dropping the app waits for its worker, so a job's temporary clone
+/// is always cleaned up before the process can exit.
+#[test]
+fn test_dropping_app_waits_for_worker() {
+    let out = tmp_dir("drop-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    let done = Arc::clone(&gate.done);
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(200));
+        gate.release();
+    });
+    drop(h);
+    assert!(
+        done.load(Ordering::SeqCst),
+        "the drop returned before the job ended"
+    );
+    releaser.join().unwrap();
+}
+
+/// T-004. Closing while working is deferred, then the app closes itself, and
+/// does not cancel the close its own `Close` produces.
+#[test]
+fn test_close_while_working_defers_then_closes() {
+    let out = tmp_dir("close-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    push_close(&mut h);
+    h.step();
+    assert!(root_commands(&h).contains(&ViewportCommand::CancelClose));
+    assert_eq!(h.state().status(), "Closing when the current job finishes…");
+    h.step();
+    h.step();
+    assert_eq!(h.state().status(), "Closing when the current job finishes…");
+
+    gate.release();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        h.step();
+        if root_commands(&h).contains(&ViewportCommand::Close) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no Close within 10 s");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    // eframe echoes the app's own Close as a close request: honour it.
+    push_close(&mut h);
+    h.step();
+    assert!(!root_commands(&h).contains(&ViewportCommand::CancelClose));
+
+    // Idle: a close simply proceeds.
+    let mut idle = harness(App::default());
+    push_close(&mut idle);
+    idle.step();
+    assert!(!root_commands(&idle).contains(&ViewportCommand::CancelClose));
+}
+
+/// A context whose repaint requests are recorded, delay by delay.
+fn recording_context() -> (egui::Context, Arc<Mutex<Vec<Duration>>>) {
+    let ctx = egui::Context::default();
+    let delays = Arc::new(Mutex::new(Vec::new()));
+    let log = Arc::clone(&delays);
+    ctx.set_request_repaint_callback(move |info| log.lock().unwrap().push(info.delay));
+    (ctx, delays)
+}
+
+fn root_logic_commands(out: &egui::LogicOutput) -> Vec<ViewportCommand> {
+    out.viewport_commands
+        .get(&ViewportId::ROOT)
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// T-004. The deferral, the repaint and the result collection all live in
+/// `tick`, which eframe runs through `logic` even when no `ui` pass does, as
+/// for a minimised window. egui calls the repaint callback only for a request
+/// sooner than one already pending, so each request is observed where
+/// nothing sooner is pending.
+#[test]
+fn test_close_deferral_runs_in_logic_alone() {
+    let out = tmp_dir("logic-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut app = app_with("some/folder", &out, Some(job));
+    let (ctx, delays) = recording_context();
+    app.generate(&ctx);
+
+    // A logic pass with no input events: the only repaint request is the
+    // tick's own, and it is within 100 ms.
+    let quiet = ctx.run_logic(&egui::RawInput::default(), |ctx| app.tick(ctx));
+    assert!(!root_logic_commands(&quiet).contains(&ViewportCommand::CancelClose));
+    let logged = delays.lock().unwrap().clone();
+    assert!(
+        !logged.is_empty() && logged.iter().all(|d| *d <= Duration::from_millis(100)),
+        "the tick keeps the window waking: {logged:?}"
+    );
+
+    // A close request, in logic alone, is cancelled while the job runs.
+    let mut input = egui::RawInput::default();
+    input
+        .viewports
+        .entry(ViewportId::ROOT)
+        .or_default()
+        .events
+        .push(ViewportEvent::Close);
+    let cancelled = ctx.run_logic(&input, |ctx| app.tick(ctx));
+    assert!(
+        root_logic_commands(&cancelled).contains(&ViewportCommand::CancelClose),
+        "{:?}",
+        cancelled.viewport_commands
+    );
+
+    // Released, the result is collected in logic alone and the close follows.
+    gate.release();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let later = ctx.run_logic(&egui::RawInput::default(), |ctx| app.tick(ctx));
+        if root_logic_commands(&later).contains(&ViewportCommand::Close) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no Close within 10 s");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert!(!app.is_working());
+}
+
+/// T-004. The worker itself wakes the window when its result is ready, with
+/// no tick run: what lets a hidden window collect a result promptly.
+#[test]
+fn test_worker_wakes_the_window() {
+    let out = tmp_dir("wake-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut app = app_with("some/folder", &out, Some(job));
+    let (ctx, delays) = recording_context();
+    app.generate(&ctx);
+    assert!(delays.lock().unwrap().is_empty(), "nothing requested yet");
+    gate.release();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !delays.lock().unwrap().contains(&Duration::ZERO) {
+        assert!(
+            Instant::now() < deadline,
+            "the worker never woke the window"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
