@@ -223,4 +223,4 @@
   literal strings from the build plan. Removing any one of them fails the
   test, all nine checked. fmt and clippy `-D warnings` are clean; 68 unit and
   54 end-to-end tests pass on rustc 1.98.1.
-- **Commit:** PENDING
+- **Commit:** `22a4cdd75935c4fb894c33324c4bafbed05632a4`
