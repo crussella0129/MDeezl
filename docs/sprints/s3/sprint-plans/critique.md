@@ -10,12 +10,16 @@ changed.
 | 1 | `block` | 16 |
 | 2 | `proceed-with-caveats` | 10 |
 | 3 | `proceed-with-caveats` | 4 |
+| 4 | `proceed-with-caveats` | 6 |
 
 Round 2 verified the round-1 resolutions against the revised plans, the
 intents and the crate sources, and raised ten new concerns (R2 C-001 to
 C-010). They follow the round-1 concerns. Round 3 confirmed that the round-2
 fixes held and that no round-1 fix had regressed, and raised four concerns
-(R3 C-001 to C-004), which come last.
+(R3 C-001 to C-004). Round 4 confirmed that the CancelClose design works in
+eframe 0.36.2, traced through `epi_integration.rs`, `egui-winit` and
+`glow_integration.rs`. It found no regressions and complete traceability, and
+raised six narrower concerns (R4 C-001 to C-006), which come last.
 
 ## Concerns
 
@@ -316,6 +320,70 @@ fixes held and that no round-1 fix had regressed, and raised four concerns
   - **The help and README** now say mdeezl "never prompts for credentials and uses no credential helper". INT-0002 records that a URL carrying credentials can clone a private repository.
   - **`test_generate_unreachable_url_writes_nothing`** uses `user:SECRET@` and asserts `SECRET` never appears.
   - **A new T-004 clause** makes the output stem `Bundle.name` only when that is a single normal component, and otherwise `bundle`. `test_output_stem_is_one_component` covers it.
+
+### R4 C-001: The close deferral fails when the window is minimised, unless it runs in `App::logic`
+- **Where:** T-004 close and working clauses
+- **Quote:** "send `ViewportCommand::Close` in the frame after the worker's result arrives"
+- **Failure mode:** missing-risk
+- **Why it matters:** eframe runs only `logic` while the window is minimised. A deferral in `ui` would be skipped, and the window would either freeze or never close.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Placement.** A new clause puts result polling, the close deferral and the repaint request in `App::tick(&egui::Context)`, called from `eframe::App::logic`. The eframe 0.36.2 docs confirm that `logic` runs when the window is hidden, through `Context::run_logic`.
+  - **Wake-up.** The worker calls `request_repaint` on a clone of the context once it has sent its result, which also wakes a hidden window.
+  - **Tests.** The kittest closure calls `tick`, then `ui`. `test_close_deferral_runs_in_logic_alone` drives `run_logic` alone and reads `LogicOutput.viewport_commands`; that field was confirmed in `output.rs`.
+
+### R4 C-002: Nothing tested that the window closes after its own `Close`
+- **Where:** `test_close_while_working_defers_then_closes`
+- **Quote:** "a later frame's commands contain `Close`"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** kittest does not echo `Close`, so an app that cancels every pending close would pass the test and never close.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. The test polls each frame until `Close` appears, within 10 s. It then pushes `ViewportEvent::Close`, as eframe would echo it, and asserts that no `CancelClose` follows. The clause adds "**SHALL NOT** cancel the close request that its own `Close` produces".
+
+### R4 C-003: The two status clauses conflicted while a close was pending
+- **Where:** T-004 working and close clauses
+- **Quote:** "`Fetching…` if `mdeezl::is_url(source)`" vs "`Closing when the current job finishes…`"
+- **Failure mode:** EARS-vague
+- **Why it matters:** both clauses applied at once, and the source field stays editable mid-job.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Precedence.** The working clause now reads "unless a close is pending", and the closing status persists until the job ends.
+  - **Stable label.** `Fetching…` or `Bundling…` is chosen from the source captured at Generate.
+  - **Test.** The close test asserts that the closing status holds across two more gated steps.
+
+### R4 C-004: The stem rule depended on the OS
+- **Where:** T-004 stem clause; `test_output_stem_is_one_component`
+- **Quote:** "a single normal path component"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** on Linux, `a\b` and `C:\` are single normal components, so the test would fail on ubuntu only.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed. The rule is stated by characters, on every OS. An empty name, `.`, `..`, or one containing `/`, `\` or `:` becomes `bundle`. A `c:x` row was added to the test.
+
+### R4 C-005: The deferred close could wait forever
+- **Where:** INT-0006 Consequences; T-004
+- **Quote:** "A clone that stalls indefinitely keeps the window open until git gives up."
+- **Failure mode:** intent-drift
+- **Why it matters:** git has no default stall timeout, and a panicked worker would leave `working` set forever.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Measured first, with a local server that accepts and never answers:**
+    - without low-speed settings, the clone waited until an outside `timeout` killed it at 12 s;
+    - with `http.lowSpeedLimit=1` and `http.lowSpeedTime=5`, it failed in 5.2 s with "Operation too slow".
+  - **The stall bound.** The clone now carries `http.lowSpeedLimit=1` and `http.lowSpeedTime=30`. They are pinned by the command test, and exercised by the new `test_stalled_server_fails_the_fetch`, which shortens the window under `cfg(test)`.
+  - **A lost worker.** A disconnected result channel ends the job with `The job stopped unexpectedly`, which `test_worker_panic_ends_job_with_error` checks.
+  - **The intents.** INT-0006 states the real bound: a stall is cut off at 30 s, and otherwise the job's own length. It also states that ending the process from outside leaves the clone. INT-0002 records the stall setting.
+
+### R4 C-006: Smaller gaps
+- **Where:** the help test, INT-0002 wording, traceability labels and the manual checks
+- **Quote:** "`never prompts for credentials`"; "The GUI waits for its worker"; "Documented source forms"; "a live GitHub URL"
+- **Failure mode:** plan-test-mismatch
+- **Why it matters:** there was an untested help item, a stale consequence, two labels that are not criteria, and an unobservably short manual fetch.
+- **Suggested response:** fix-in-plan
+- **Resolution:** fixed.
+  - **Help and README tests** assert `credential helper`.
+  - **INT-0002's consequence** now describes the deferred close, and its cross-reference names the display-form bullet.
+  - **The two traceability rows** now cite INT-0002's real criteria and INT-0006 "Documented".
+  - **The manual checks** use `https://github.com/git/git`, whose shallow clone takes several seconds. The measured duration will be recorded.
 
 ## Confidence
 proceed-with-caveats

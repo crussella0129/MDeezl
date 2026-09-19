@@ -69,7 +69,7 @@
   - the temporary copy removed.
 - **Success criterion (EARS):**
   - **WHEN** `mdeezl::is_url(s)` is called, **THEN** it **SHALL** return true exactly when `s` begins with `https://`, `http://` or `file://`. **WHEN** the source argument is not a URL — including `ftp:/weird`, `git@host:x/y` and `C:\x` — **THEN** mdeezl **SHALL** treat it as a local path, as before. Detection **SHALL** use the argument's text (`to_str`), never path components.
-  - **WHEN** a URL source is fetched, **THEN** the clone command **SHALL** be exactly `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf clone --depth 1 --quiet -- <url> <dest>`. It **SHALL** run with:
+  - **WHEN** a URL source is fetched, **THEN** the clone command **SHALL** be exactly `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 clone --depth 1 --quiet -- <url> <dest>`. It **SHALL** run with:
     - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
     - `GIT_ASKPASS`, `SSH_ASKPASS` and the 15 repository-local git variables removed;
     - `<dest>` as `<base>/mdeezl-<pid>-<n>/<repo-name>`, where `<base>` is `std::env::temp_dir()` in production.
@@ -81,7 +81,8 @@
     The name is used as a path component, so it can never leave its folder.
   - **WHEN** a URL is shown — in the document heading, on stderr or in the GUI — **THEN** it **SHALL** be the display form, with any `user[:password]@` userinfo removed from its authority. The clone itself uses the URL as given.
   - **WHEN** the clone succeeds, **THEN** the document **SHALL** be the clone's bundle, with heading `# <display-url>` and tree root line `<repo-name>/`, and `Bundle.name` **SHALL** be `<repo-name>`. Line endings **SHALL** be the same on every OS: `core.autocrlf=false` and `core.eol=lf` check text files out with LF, and a file with an explicit `eol` attribute follows it.
-  - **WHEN** the fetch fails — a missing, unauthorised or unreachable repository, a protocol outside the allow-list, or git not found — **THEN** the CLI **SHALL** exit 1, with empty stdout and one stderr line `mdeezl: could not fetch <display-url>: <reason>`. `<reason>` **SHALL** be one of:
+  - **WHEN** an HTTP(S) transfer moves less than 1 byte per second for 30 seconds, **THEN** the fetch **SHALL** fail rather than wait. Measured: without the setting, a server that accepts and never answers held the clone until an outside `timeout` killed it; with a 5-second window it failed in 5.2 s with "Operation too slow".
+  - **WHEN** the fetch fails — a missing, unauthorised, unreachable or stalled repository, a protocol outside the allow-list, or git not found — **THEN** the CLI **SHALL** exit 1, with empty stdout and one stderr line `mdeezl: could not fetch <display-url>: <reason>`. `<reason>` **SHALL** be one of:
     - git's first stderr line beginning `fatal: `, with that prefix removed;
     - if no such line exists, git's last non-empty stderr line;
     - if git is not found, `git was not found on PATH`.
@@ -148,18 +149,28 @@
     3. show `Wrote <path> (<size>)` and every notice.
 
     `<size>` is `format_size(bytes)`: `N bytes` below 1024, `N.N KB` below 1 MiB, `N.N MB` otherwise. The file's bytes **SHALL** equal `bundle(&options).document`.
-  - **WHEN** the app is working, **THEN** `Generate` **SHALL** be disabled, and the status **SHALL** read `Fetching…` if `mdeezl::is_url(source)`, otherwise `Bundling…`. Every frame **SHALL** request a repaint within 100 ms, so the window shows the result without waiting for input.
+  - **WHEN** the app is working, **THEN**:
+    - `Generate` **SHALL** be disabled;
+    - unless a close is pending, the status **SHALL** read `Fetching…` if `mdeezl::is_url` held for the source *captured when Generate was activated*, and `Bundling…` otherwise;
+    - each tick **SHALL** request a repaint within 100 ms;
+    - the worker **SHALL** call `request_repaint` on a clone of the `egui::Context` once it has sent its result.
+
+    The window therefore shows the result without waiting for input, minimised or not.
+  - **WHEN** eframe drives the app, **THEN** three things **SHALL** live in one inherent `App::tick(&egui::Context)`, which `eframe::App::logic` calls: polling for the worker's result, the close deferral, and the repaint request. eframe runs `logic` even while the window is minimised or hidden, and then runs no `ui` pass. Drawing stays in `ui`.
+  - **WHEN** the worker's result channel disconnects without a result, as when the job panics, **THEN** the tick **SHALL** end the job, with the status `The job stopped unexpectedly`. The app **SHALL** stop working, and no output file **SHALL** be written.
   - **WHEN** the window's close is requested while the app is working, **THEN** the app **SHALL**:
     - send `ViewportCommand::CancelClose`;
-    - set the status to `Closing when the current job finishes…`;
+    - set the status to `Closing when the current job finishes…`, which persists until the job ends;
     - keep repainting;
-    - send `ViewportCommand::Close` in the frame after the worker's result arrives.
+    - send `ViewportCommand::Close` in the tick after the worker's result, or its disconnection, arrives.
+
+    It **SHALL NOT** cancel the close request that its own `Close` produces.
 
     **WHEN** a close is requested while idle, **THEN** it **SHALL** proceed normally.
   - **WHEN** the app is dropped while its worker runs, **THEN** the drop **SHALL** wait for the worker to finish, as a backstop, so the engine's temporary-clone guard runs before the process exits.
   - **WHEN** the job fails, or the write or rename fails, **THEN** the status **SHALL** show the error, and the temporary sibling **SHALL** be removed. An existing `<name>.md` **SHALL** be left exactly as it was; if none existed, none **SHALL** exist. A rename failure is provoked by making `<name>.md` a directory.
   - **WHEN** `Generate` is activated with an empty source, **THEN** the status **SHALL** read `Choose a folder or URL`. With an empty output folder it **SHALL** read `Choose an output folder`. In both cases no job **SHALL** start.
-  - **WHEN** the output file is named, **THEN** its stem **SHALL** be `Bundle.name` only if that is a single normal path component. Otherwise it **SHALL** be `bundle`: an empty name, `.`, `..`, or one containing a separator or a drive or root prefix. That happens when a filesystem root is bundled, whose name falls back to the whole path. The file therefore always lands inside the output folder.
+  - **WHEN** the output file is named, **THEN** its stem **SHALL** be `Bundle.name`, unless the name is empty, `.` or `..`, or contains `/`, `\` or `:`. In those cases it **SHALL** be `bundle`. The rule is stated by characters, so it is the same on every OS. A bad name arises when a filesystem root is bundled, because its name falls back to the whole path. With this rule the file always lands inside the output folder.
 - **Notes:** a successful Generate replaces an existing `<name>.md` in one rename, which INT-0006 records.
 
 ### T-005: CI gates cover the workspace

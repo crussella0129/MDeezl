@@ -115,8 +115,16 @@ stack to a project that has so far had no runtime dependencies at all.
   a close request is cancelled. The status then says the window will close
   when the job ends, the window stays responsive, and it closes itself when
   the worker finishes, so the engine's temporary clone is removed first. The
-  app's drop also joins the worker, as a backstop. A clone that stalls
-  indefinitely keeps the window open until git gives up.
+  app's drop also joins the worker, as a backstop.
+- **How long a close can wait.** A fetch that stalls is cut off by the
+  engine's 30-second low-speed limit. A fetch that keeps moving slowly, or a
+  very large local bundle, can keep the window open for as long as it takes.
+  Ending the process from outside, for example with Task Manager, then leaves
+  the temporary clone behind, as Ctrl+C does in the CLI.
+- **The polling lives in `App::logic`.** Result polling, the close deferral and
+  the repaint request run in eframe's `logic` hook, which eframe calls even
+  while the window is minimised. A minimised window still closes, and still
+  collects its result.
 - **Every CLI build now resolves the GUI's dependency graph.** Cargo keeps one
   lockfile per workspace, so building or installing the `mdeezl` crate on a
   fresh machine needs registry index data for the GUI's crates too, but
@@ -163,3 +171,8 @@ stack to a project that has so far had no runtime dependencies at all.
     loop, so joining there would freeze a still-visible window. A close during
     a job is now cancelled and completed when the job ends.
   - The workspace-resolution consequence for CLI builds was added.
+- 2026-09-19: amended while `planned`, from the fourth sprint 3 plan critique.
+  - The close consequence now states its real bound: the engine's stall
+    limit, and otherwise the job's own length.
+  - It records that the app's polling lives in `logic`, so a minimised window
+    behaves the same.

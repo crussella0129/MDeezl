@@ -58,7 +58,7 @@ pure-`std` shape if entangled with it.
   - **It works for every provider's plain HTTPS clone URL.**
   - **The fetch is hardened so it can never wait on a person.** The measured
     command is
-    `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf clone --depth 1 --quiet -- <url> <dest>`.
+    `git -c credential.helper= -c core.askPass= -c core.autocrlf=false -c core.eol=lf -c http.lowSpeedLimit=1 -c http.lowSpeedTime=30 clone --depth 1 --quiet -- <url> <dest>`.
     It runs with:
     - `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`,
       `GIT_ALLOW_PROTOCOL=https:http:file` and `GIT_LFS_SKIP_SMUDGE=1` set;
@@ -75,6 +75,11 @@ pure-`std` shape if entangled with it.
       enough. Measured: a `* text=auto` repository still checked out CRLF on
       Windows. Adding `core.eol=lf` checks text files out with LF everywhere,
       and a file with an explicit `eol` attribute still follows it.
+    - **A stalled server cannot hang it.** git sets no stall timeout by
+      default. Measured: a local server that accepted and never answered held
+      a clone until an outside `timeout` killed it. With the low-speed
+      settings (1 byte/s, over a 5-second window in the measurement), it
+      failed in 5.2 s with "Operation too slow". Production uses 30 seconds.
     - **No LFS downloads.** `GIT_LFS_SKIP_SMUDGE=1` leaves LFS-tracked files as
       their small pointer text. A host's git-lfs setup therefore cannot pull
       large objects into a text bundle, or fail the clone on an exhausted quota.
@@ -102,7 +107,8 @@ pure-`std` shape if entangled with it.
     decide what a URL is. `file://` is a URL git clones, and accepting it lets
     the whole remote path be tested offline.
   - **The heading records the source.** For a URL source, the document's
-    heading is `# <display-url>` (see below), and the tree root is the
+    heading is `# <display-url>` (see the display-form bullet), and the tree
+    root is the
     repository's name. That uses
     the existing heading line rather than adding any new element to the
     format, so local-path output stays byte-identical.
@@ -115,8 +121,9 @@ pure-`std` shape if entangled with it.
 - Deferring it keeps sprint 0 small; the cost is that branch-scoped bundling is
   unavailable until it is scheduled.
 - An interrupted CLI run, such as Ctrl+C during a clone, can leave its
-  temporary clone in the system temp folder. The GUI waits for its worker when
-  the window closes, so the guard still runs there.
+  temporary clone in the system temp folder. The GUI defers a close until its
+  worker ends, so the guard still runs there, unless the process is ended from
+  outside.
 - LFS-tracked files appear in a URL bundle as pointer text, not content.
 
 ## Transition history
@@ -159,3 +166,8 @@ pure-`std` shape if entangled with it.
   - The heading is written as `# <display-url>`.
   - It is now recorded that a URL carrying its own credentials can clone a
     private repository, since MDeezl only guarantees that it never prompts.
+- 2026-09-19: amended while `planned`, from the fourth sprint 3 plan critique.
+  The clone adds `http.lowSpeedLimit=1` and `http.lowSpeedTime=30`, so a
+  stalled server fails the fetch instead of hanging it; this was measured
+  first. The GUI consequence now describes the deferred close, and a
+  cross-reference was fixed.
