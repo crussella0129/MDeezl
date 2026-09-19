@@ -184,6 +184,45 @@ sprint plans contain four-backtick runs, so those bodies open with five.
   where it sits. Neither aborts the document.
 - **Portable paths.** Output always uses `/`, including on Windows.
 
+## Toolchain
+
+Track stable by default; pin when stability matters more. The policy lives in
+`rust-toolchain.toml` at the root, which names `channel = "stable"` with the
+`rustfmt` and `clippy` components. Your checkout and CI both follow it.
+
+A file that says `stable` means whatever stable is installed. It does not
+update it. CI updates first, so to build with the toolchain CI uses, run these
+in the checkout:
+
+```bash
+rustup update stable
+rustup toolchain install
+```
+
+The first moves your installed stable to the current release. That affects
+every project on the machine that tracks stable, not only this one. The second
+installs whatever the file names if it is missing, which is how a pinned
+version arrives. It does not update an installed toolchain.
+
+**To pin**, replace `"stable"` in the file with a version such as `"1.98.1"`.
+Nothing else changes. CI installs the pinned version before its gates, and
+locally the second command above installs it. Change the word back to
+`"stable"` to resume tracking.
+
+The trade-off is deliberate: a new stable can turn CI red with a lint the
+previous release did not flag, with no change to the code. Fix the lint, or pin
+until you can. Each CI run first logs the runner image's own stable, then the
+exact rustc, cargo, clippy and rustup it used, so such a failure explains
+itself.
+
+CI does not pin git's version. It floats with the runner image and is logged
+beside the Rust versions. The git behaviours MDeezl relies on are covered by
+tests that run on whichever git executes them.
+
+These commands were verified with rustup 1.29. If your rustup is older, the
+no-argument install may behave differently, so upgrade it first with
+`rustup self update`.
+
 ## Not yet
 
 Bundling a git branch, worktree, or a remote repository on GitHub/GitLab/Gitea/

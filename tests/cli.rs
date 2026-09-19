@@ -1343,3 +1343,23 @@ fn test_ci_updates_installs_and_logs_in_order() {
     assert!(wf.contains("fail-fast: false"));
     assert!(wf.contains("cargo test --all -- --nocapture"));
 }
+
+/// T-002. The README's Toolchain section states each required item; one
+/// literal string per item, as the build plan lists them.
+#[test]
+fn test_readme_documents_toolchain_policy() {
+    let readme = repo_file("README.md");
+    for needle in [
+        "Track stable by default",
+        "rust-toolchain.toml",
+        "rustup update stable",
+        "rustup toolchain install",
+        "To pin",
+        "rustup 1.29",
+        "rustup self update",
+        "a new stable",
+        "git's version",
+    ] {
+        assert!(readme.contains(needle), "README must say {needle:?}");
+    }
+}

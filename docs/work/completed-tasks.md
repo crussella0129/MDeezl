@@ -204,3 +204,23 @@
   planned mutations fail their named test; the pin to the installed 1.96.0
   passes the full suite with rustc reporting 1.96.0.
 - **Commit:** `f9913c8a2097204babb2bea15d8c6d39cf676ce9`
+
+## T-002 (sprint 2)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-09-18
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** A new README "Toolchain" section, placed before "Not yet". It
+  states the policy and names `rust-toolchain.toml`. It explains that a
+  `stable` file does not update anything, and gives the two commands that
+  bring a checkout level with CI: `rustup update stable`, then
+  `rustup toolchain install`. It warns that the first is machine-wide. It
+  covers how to pin and unpin, and the deliberate trade-off that a new stable
+  can turn CI red. It says git's version floats with the runner image, and
+  that the commands were verified with rustup 1.29, with `rustup self update`
+  as the upgrade path.
+- **Verification:** `test_readme_documents_toolchain_policy` asserts the nine
+  literal strings from the build plan. Removing any one of them fails the
+  test, all nine checked. fmt and clippy `-D warnings` are clean; 68 unit and
+  54 end-to-end tests pass on rustc 1.98.1.
+- **Commit:** PENDING
