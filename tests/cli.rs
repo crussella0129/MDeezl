@@ -1256,9 +1256,10 @@ fn test_cli_nested_repository_not_filtered() {
 
 // ======================= Sprint 2: toolchain policy (INT-0005) =======================
 
-/// Read a repository file at runtime, not with `include_str!`, so a deleted
-/// file fails one named test instead of breaking compilation of this file.
-/// CRLF is normalised: the Windows runner checks files out with CRLF.
+/// Read a repository file at runtime, not with `include_str!`. A file read
+/// only this way (`rust-toolchain.toml`) then fails one named test when
+/// deleted, instead of breaking compilation of this file. CRLF is normalised:
+/// the Windows runner checks files out with CRLF.
 fn repo_file(rel: &str) -> String {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(rel);
     fs::read_to_string(&path)
@@ -1266,89 +1267,180 @@ fn repo_file(rel: &str) -> String {
         .replace("\r\n", "\n")
 }
 
-/// T-001. The file names a channel and both components. It deliberately does
-/// NOT require `stable`: pinning must stay a one-line change to the file, and
-/// a test demanding `stable` would make it a two-file change.
+/// The body of the TOML table `[name]`: its lines with comments and blank
+/// lines dropped, up to the next table header. No value in this file holds
+/// `#`, so cutting at the first `#` is exact here.
+fn toml_table<'a>(toml: &'a str, name: &str) -> Vec<&'a str> {
+    let header = format!("[{name}]");
+    toml.lines()
+        .map(|l| l.split('#').next().unwrap_or("").trim())
+        .skip_while(|l| *l != header)
+        .skip(1)
+        .take_while(|l| !l.starts_with('['))
+        .filter(|l| !l.is_empty())
+        .collect()
+}
+
+/// The value of `key = value` in a table body, trimmed.
+fn toml_value<'a>(table: &[&'a str], key: &str) -> Option<&'a str> {
+    table.iter().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        (k.trim() == key).then(|| v.trim())
+    })
+}
+
+/// The inside of a TOML basic (`"…"`) or literal (`'…'`) string.
+fn toml_unquote(v: &str) -> Option<&str> {
+    let v = v.trim();
+    ['"', '\'']
+        .into_iter()
+        .find_map(|q| v.strip_prefix(q)?.strip_suffix(q))
+}
+
+/// T-001. The `[toolchain]` table names a channel and both components. It
+/// deliberately does NOT require `stable`: pinning must stay a one-line change
+/// to the file, and a test demanding `stable` would make it a two-file change.
 #[test]
 fn test_toolchain_file_declares_channel_and_components() {
     let toml = repo_file("rust-toolchain.toml");
-    let lines: Vec<&str> = toml.lines().map(str::trim).collect();
-    assert!(lines.contains(&"[toolchain]"), "a [toolchain] table");
-    let channel = lines
-        .iter()
-        .find_map(|l| l.strip_prefix("channel = \""))
-        .and_then(|rest| rest.strip_suffix('"'));
+    let table = toml_table(&toml, "toolchain");
+    assert!(!table.is_empty(), "a non-empty [toolchain] table");
+
+    let channel = toml_value(&table, "channel")
+        .and_then(toml_unquote)
+        .expect("a quoted channel in [toolchain]");
     assert!(
-        matches!(channel, Some(c) if !c.is_empty()),
+        !channel.is_empty(),
         "a non-empty channel, stable or a pinned version"
     );
-    let components = lines
-        .iter()
-        .find(|l| l.starts_with("components"))
-        .expect("a components line");
-    for c in ["\"rustfmt\"", "\"clippy\""] {
-        assert!(components.contains(c), "components must list {c}");
+
+    let array = toml_value(&table, "components").expect("components in [toolchain]");
+    let items: Vec<&str> = array
+        .strip_prefix('[')
+        .and_then(|a| a.strip_suffix(']'))
+        .expect("components is a closed one-line array")
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| toml_unquote(s).expect("each component is a quoted string"))
+        .collect();
+    for c in ["rustfmt", "clippy"] {
+        assert!(items.contains(&c), "components must list {c}: {items:?}");
     }
 }
 
+/// The steps of the workflow's single job, each as its trimmed lines, with
+/// comment lines dropped: a commented-out step is no step. A step starts at
+/// `      - ` and runs until the next one, or until the job's indentation ends.
+fn workflow_steps(wf: &str) -> Vec<Vec<&str>> {
+    let body = wf.split_once("\n    steps:\n").expect("a steps: list").1;
+    let mut steps: Vec<Vec<&str>> = Vec::new();
+    for line in body.lines() {
+        let t = line.trim();
+        if t.is_empty() || t.starts_with('#') {
+            continue;
+        }
+        if !line.starts_with("      ") {
+            break;
+        }
+        match line.strip_prefix("      - ") {
+            Some(first) => steps.push(vec![first.trim()]),
+            None => steps.last_mut().expect("keys follow a step").push(t),
+        }
+    }
+    steps
+}
+
 /// T-001. CI records the image's stable, updates, installs, records what it
-/// now uses, then runs the gates -- in that order, one command per step.
+/// now uses, then runs the gates -- in that order, one command per step, none
+/// of them conditional or allowed to fail.
 #[test]
 fn test_ci_updates_installs_and_logs_in_order() {
     let wf = repo_file(".github/workflows/sprint-loops-ci.yml");
-    let pos = |needle: &str, from: usize| -> usize {
-        wf[from..]
-            .find(needle)
-            .map(|i| i + from)
-            .unwrap_or_else(|| panic!("workflow must contain {needle:?} after byte {from}"))
+    let steps = workflow_steps(&wf);
+    // A step that is exactly this one line: its own step, with no `if:`,
+    // `continue-on-error:` or other key that could skip it or excuse it.
+    let sole = |cmd: &str| -> usize {
+        let line = format!("run: {cmd}");
+        steps
+            .iter()
+            .position(|s| s[..] == [line.as_str()])
+            .unwrap_or_else(|| panic!("workflow must have the one-line step {line:?}"))
     };
 
-    let pre = pos("rustc +stable --version", 0);
-    let update = pos("- run: rustup update --no-self-update stable\n", 0);
-    // Ends at the newline: no toolchain argument, so the file decides.
-    let install = pos("- run: rustup toolchain install --no-self-update\n", 0);
+    let pre = sole("rustc +stable --version");
+    let update = sole("rustup update --no-self-update stable");
+    // No toolchain argument, so the file decides what is installed.
+    let install = sole("rustup toolchain install --no-self-update");
     assert!(pre < update, "image version is logged before the update");
     assert!(update < install, "update comes before the install");
 
-    let post = pos("rustc --version", install);
-    let mut log_end = post;
-    for needle in [
+    // One bash step logs all five, so any failing line fails it.
+    let log = steps
+        .iter()
+        .position(|s| s.contains(&"rustc --version"))
+        .expect("a post-install rustc --version");
+    let log_step = &steps[log];
+    for line in [
+        "rustc --version",
         "cargo --version",
         "cargo clippy --version",
         "rustup --version",
         "git --version",
+        "shell: bash",
     ] {
-        log_end = log_end.max(pos(needle, install));
+        assert!(
+            log_step.contains(&line),
+            "the version-log step must hold {line:?}: {log_step:?}"
+        );
     }
-    let fmt = pos("cargo fmt --check", 0);
     assert!(
-        log_end < fmt,
-        "the toolchain is logged before the gates run"
+        !log_step
+            .iter()
+            .any(|l| l.starts_with("if:") || l.starts_with("continue-on-error:")),
+        "the version-log step must be neither conditional nor allowed to fail"
     );
+    assert!(install < log, "the toolchain is logged after the install");
 
-    // The post-install log's own step runs under bash on both legs.
-    let step_start = wf[..post].rfind("\n      - ").expect("step start");
-    let step_end = wf[post..]
-        .find("\n      - ")
-        .map(|i| i + post)
-        .unwrap_or(wf.len());
-    assert!(
-        wf[step_start..step_end].contains("shell: bash"),
-        "the version log must run under bash so any failing line fails it"
-    );
+    for gate in [
+        "cargo fmt --check",
+        "cargo clippy --all-targets -- -D warnings",
+        "cargo test --all -- --nocapture",
+    ] {
+        assert!(
+            log < sole(gate),
+            "{gate:?} runs after the toolchain is logged"
+        );
+    }
 
     // Exits 100 whenever any update exists; would fail CI for no code reason.
     assert!(!wf.contains("rustup check"));
-    // INT-0001's two-OS criterion must not regress.
-    assert!(wf.contains("fail-fast: false"));
-    assert!(wf.contains("cargo test --all -- --nocapture"));
+    // INT-0001's two-OS criterion must not regress: both legs, on live lines.
+    let live: Vec<&str> = wf
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with('#'))
+        .collect();
+    for line in [
+        "fail-fast: false",
+        "os: [ubuntu-latest, windows-latest]",
+        "runs-on: ${{ matrix.os }}",
+    ] {
+        assert!(live.contains(&line), "workflow must keep {line:?}");
+    }
 }
 
-/// T-002. The README's Toolchain section states each required item; one
-/// literal string per item, as the build plan lists them.
+/// T-002. The README's Toolchain section states each required item, one
+/// literal string per item as the build plan lists them, and gives the two
+/// commands in the order that works: update, then install.
 #[test]
 fn test_readme_documents_toolchain_policy() {
     let readme = repo_file("README.md");
+    let section = readme
+        .split_once("\n## Toolchain\n")
+        .expect("a ## Toolchain section")
+        .1;
+    let section = section.split("\n## ").next().unwrap_or(section);
     for needle in [
         "Track stable by default",
         "rust-toolchain.toml",
@@ -1360,6 +1452,15 @@ fn test_readme_documents_toolchain_policy() {
         "a new stable",
         "git's version",
     ] {
-        assert!(readme.contains(needle), "README must say {needle:?}");
+        assert!(
+            section.contains(needle),
+            "Toolchain section must say {needle:?}"
+        );
     }
+    let update = section.find("rustup update stable").unwrap_or(usize::MAX);
+    let install = section.find("rustup toolchain install").unwrap_or(0);
+    assert!(
+        update < install,
+        "the update comes before the install; the install alone updates nothing"
+    );
 }
