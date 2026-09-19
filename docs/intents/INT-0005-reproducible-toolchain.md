@@ -118,6 +118,14 @@ stable was 1.98.1.
 - **Updating the development host's `stable` is machine-wide.** It changes the
   Rust used by every other project on that machine that tracks stable.
 - **CI runs grow slightly,** by one toolchain install or update per leg.
+- **Open observation: lag correction has not yet been seen in CI.** Through
+  sprint 2, every CI update step reported `unchanged`, because the runner
+  images already carried the true current stable. The evidence that
+  `rustup update stable` moves a lagging stable forward is one measurement on
+  the development host, where 1.96.0 moved to 1.98.1. The first CI log whose
+  update step reads `updated` should be attached here as evidence when it
+  appears. That happens when a new stable ships before the runner images pick
+  it up.
 
 ## Transition history
 - 2026-09-18: created as `proposed` at the close of sprint 1, from the toolchain
