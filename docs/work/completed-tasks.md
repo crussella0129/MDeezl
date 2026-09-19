@@ -373,4 +373,4 @@
        AccessKit, but the output folder is set on the state. Its field holds
        the home folder, and typing would append to that.
   - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
-- **Commit:** PENDING
+- **Commit:** `a5c6a1556f8f480cf77596d22db098851487de24`
