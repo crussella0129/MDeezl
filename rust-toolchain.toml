@@ -1,5 +1,5 @@
 # Track stable by default. To pin, replace "stable" with a version such as
 # "1.98.1" -- local and CI both follow this file. See README "Toolchain".
 [toolchain]
-channel = "stable"
+channel = "1.96.0"
 components = ["rustfmt", "clippy"]
