@@ -23,11 +23,26 @@ Or run it straight from the checkout with `cargo run -- <args>`.
 ## Usage
 
 ```
-mdeezl [PATH] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]... [--no-gitignore]
+mdeezl [PATH | URL] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]... [--no-gitignore]
 ```
 
 `PATH` defaults to the current directory. Output goes to stdout unless `-o` is
 given.
+
+A **URL** can stand in for `PATH`. Any argument beginning `https://`,
+`http://` or `file://` is fetched rather than read from disk:
+
+```bash
+mdeezl https://github.com/octocat/Hello-World -o hello.md
+```
+
+This needs git on your PATH. mdeezl makes a shallow clone into a temporary
+folder, bundles it, and the folder is removed afterwards, whether or not the
+run succeeds. The document's title is the URL, minus any `user:password@` it
+carried. mdeezl never prompts for credentials and uses no credential helper,
+so a private repository fails instead of asking you to log in. A stalled
+transfer gives up after 30 seconds. Text files arrive with LF line endings on
+every OS, and Git LFS files arrive as their pointer text.
 
 | Flag | Meaning |
 |------|---------|
@@ -38,8 +53,8 @@ given.
 | `--no-gitignore` | do not apply the repository's `.gitignore` rules |
 | `-h`, `--help` | print usage |
 
-Exit codes: `0` success, `2` bad arguments, `1` the path could not be read or
-the output could not be written. A non-zero exit never leaves a partial
+Exit codes: `0` success, `2` bad arguments, `1` the path could not be read, a
+URL could not be fetched, or the output could not be written. A non-zero exit never leaves a partial
 document on stdout.
 
 ## Example
@@ -225,9 +240,10 @@ no-argument install may behave differently, so upgrade it first with
 
 ## Not yet
 
-Bundling a git branch, worktree, or a remote repository on GitHub/GitLab/Gitea/
-Codeberg, and LLM-generated comments in the tree, are both intended but out of
-scope for now. They are written up as `docs/intents/INT-0002` and `INT-0003`.
+Bundling a git branch, tag, commit or worktree of a local repository without
+checking it out, and LLM-generated comments in the tree, are both intended but
+out of scope for now. They are written up as `docs/intents/INT-0002` (its
+git-ref half) and `INT-0003`.
 
 ## License
 

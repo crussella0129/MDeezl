@@ -253,3 +253,46 @@
     earlier tests, unedited.
   - **Gates:** fmt and clippy `-D warnings` are clean.
 - **Commit:** `efca63fdd447e582a001291a5cbe0e1c306f54cb`
+
+## T-002 (sprint 3)
+
+- **Intent:** [INT-0002](../intents/INT-0002-git-and-remote-sources.md), with [INT-0006](../intents/INT-0006-desktop-gui.md) for the no-console-window clause
+- **Completed:** 2026-09-19
+- **Touched:** `src/lib.rs`, `tests/cli.rs`, `README.md`
+- **Summary:** A source beginning `https://`, `http://` or `file://` is now
+  fetched.
+  - **The clone.** It is a shallow `git clone`, hardened so it can never wait
+    on a person:
+    - prompts, askpass and credential helpers are off;
+    - `GIT_ALLOW_PROTOCOL=https:http:file` refuses ssh;
+    - a transfer that stalls once connected is cut off by
+      `http.lowSpeedLimit=1` / `http.lowSpeedTime=30`, with the
+      `GIT_HTTP_LOW_SPEED_*` overrides removed;
+    - text arrives with LF on every OS (`core.eol=lf`);
+    - LFS files stay as pointers.
+  - **Cleanup.** The clone lives in `<temp>/mdeezl-<pid>-<n>/<repo-name>`, and
+    a drop guard removes it whether the run succeeds or not.
+  - **What the user sees.** The heading is the display URL, with any
+    `user:password@` stripped. The repository name is made path-safe. A
+    failure's reason is git's first `fatal:` line.
+  - **One git entry point.** Every git spawn, gitignore's included, now goes
+    through `git_command()`, which sets `CREATE_NO_WINDOW` on Windows.
+  - **Docs.** `--help` and the README describe URL sources. The README's exit
+    codes count a failed fetch, and "Not yet" keeps only the git-ref half and
+    INT-0003.
+- **Verification:**
+  - **Unit tests, 9 new:** `test_is_url`, `test_repo_name`,
+    `test_display_url_strips_credentials`, `test_clone_command_is_hardened`,
+    `test_fetch_rejects_protocol_outside_allow_list`,
+    `test_fetch_file_url_bundles_the_clone` (exact LF bytes on Windows),
+    `test_fetch_bad_url_errs`, `test_stalled_server_fails_the_fetch` and
+    `test_git_commands_set_create_no_window`.
+  - **End-to-end tests, 5 new:** `test_cli_file_url_source_bundles_the_clone`,
+    `test_cli_unreachable_url_exits_1` (no `SECRET` in stderr),
+    `test_cli_url_without_git_exits_1`, `test_cli_help_documents_url_sources`
+    and `test_readme_documents_url_sources`. There is also the ignored
+    `test_live_github_clone`, which was run once by hand and passed in 0.99 s.
+  - **Totals:** 78 unit and 61 end-to-end tests pass, and every earlier test
+    is unedited: `git diff --numstat 24442f1 -- tests/cli.rs` reads `252 0`.
+  - **Gates:** fmt and clippy `-D warnings` are clean.
+- **Commit:** PENDING

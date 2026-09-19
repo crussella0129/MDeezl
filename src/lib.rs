@@ -9,14 +9,10 @@
 //! [`cli`] is the whole command line.
 
 use std::collections::HashSet;
-// `env` and `process::self` have no non-test user until URL sources arrive;
-// the unit tests reach them through `use super::*`, so they stay.
-#[cfg_attr(not(test), allow(unused_imports))]
 use std::env;
 use std::fs;
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
-#[cfg_attr(not(test), allow(unused_imports))]
 use std::process::{self, Command, Stdio};
 
 /// Pre-populated ignore list. `.*` covers `.git`, `.venv`, and every other
@@ -34,9 +30,17 @@ const HELP: &str = "\
 mdeezl — feed any repository to text-only agents
 
 USAGE:
-    mdeezl [PATH] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]...
+    mdeezl [PATH | URL] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]...
 
 PATH defaults to the current directory. Output goes to stdout unless -o is given.
+
+URL SOURCES:
+    A URL beginning https://, http:// or file:// is fetched instead of read
+    from disk. This needs git: mdeezl makes a shallow clone into a temporary
+    folder, bundles it, and the folder is removed afterwards. The document's
+    title is the URL. mdeezl never prompts for credentials and uses no
+    credential helper, so a private repository fails instead of asking you to
+    log in.
 
 OPTIONS:
     -o, --output FILE     write the document to FILE instead of stdout
@@ -478,6 +482,181 @@ thread_local! {
     static GIT_SPAWNS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// Every git process starts here: the repository-local variables removed, and
+/// on Windows no console window, which a windowed caller would otherwise flash
+/// for each spawn. Under test, git is also isolated from the host's
+/// configuration and from any repository above the temp directory, as the
+/// end-to-end harness does -- set on the child, so no process-wide `set_var`.
+fn git_command() -> Command {
+    let mut cmd = Command::new("git");
+    for var in GIT_LOCAL_ENV_VARS {
+        cmd.env_remove(var);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(test)]
+    {
+        let iso = env::temp_dir().join(format!("mdeezl-gitiso-{}", process::id()));
+        let _ = fs::create_dir_all(&iso);
+        let _ = fs::write(iso.join("gitconfig"), "");
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
+            .env("XDG_CONFIG_HOME", &iso)
+            .env("GIT_CEILING_DIRECTORIES", env::temp_dir());
+    }
+    cmd
+}
+
+// ---- URL sources: a shallow clone into a temporary folder. See INT-0002. ----
+
+/// True when `s` names a remote to fetch rather than a local path. Checked on
+/// the text, never on path components: git itself reads `ftp:/weird` as ssh.
+pub fn is_url(s: &str) -> bool {
+    ["https://", "http://", "file://"]
+        .iter()
+        .any(|p| s.starts_with(p))
+}
+
+/// `url` as shown to a person -- heading, stderr, the GUI -- with any
+/// `user[:password]@` removed, so a token never lands in a pasted document.
+fn display_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_string();
+    };
+    let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    match authority.rfind('@') {
+        Some(at) => format!("{scheme}://{}{path}", &authority[at + 1..]),
+        None => url.to_string(),
+    }
+}
+
+/// The folder name for a clone: the URL path's last segment without `.git`.
+/// It becomes a path component, so anything that could leave its folder or
+/// is not a plain name falls back to `repository`.
+fn repo_name(url: &str) -> String {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    let path = rest.find('/').map_or("", |i| &rest[i..]);
+    let path = path.split(['?', '#']).next().unwrap_or("");
+    let segment = path.split('/').rfind(|s| !s.is_empty()).unwrap_or("");
+    let name = segment.strip_suffix(".git").unwrap_or(segment);
+    if name.is_empty() || name == "." || name == ".." || name.contains(['\\', ':', '?', '#']) {
+        "repository".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// Seconds a transfer may move under 1 byte/s before git gives up. git has no
+/// stall timeout of its own: a silent server would otherwise hang the fetch.
+const LOW_SPEED_SECS: u32 = 30;
+
+#[cfg(test)]
+thread_local! {
+    /// Lowered by the stalled-server test, on its own thread only.
+    static LOW_SPEED_OVERRIDE: std::cell::Cell<Option<u32>> = const { std::cell::Cell::new(None) };
+}
+
+fn low_speed_secs() -> u32 {
+    #[cfg(test)]
+    if let Some(secs) = LOW_SPEED_OVERRIDE.with(|c| c.get()) {
+        return secs;
+    }
+    LOW_SPEED_SECS
+}
+
+/// The clone, hardened so it can never wait on a person: every prompt route
+/// off (terminal, askpass, credential helpers), ssh refused even when an
+/// `insteadOf` rewrites to it, stalls bounded, LF text on every OS, and LFS
+/// objects left as pointers. `--` keeps a URL from being read as an option.
+fn clone_command(url: &str, dest: &Path) -> Command {
+    let mut cmd = git_command();
+    cmd.args(["-c", "credential.helper=", "-c", "core.askPass="])
+        .args(["-c", "core.autocrlf=false", "-c", "core.eol=lf"])
+        .args(["-c", "http.lowSpeedLimit=1", "-c"])
+        .arg(format!("http.lowSpeedTime={}", low_speed_secs()))
+        .args(["clone", "--depth", "1", "--quiet", "--", url])
+        .arg(dest)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "never")
+        .env("GIT_ALLOW_PROTOCOL", "https:http:file")
+        .env("GIT_LFS_SKIP_SMUDGE", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped());
+    // git lets these override the `-c` settings above.
+    for var in [
+        "GIT_ASKPASS",
+        "SSH_ASKPASS",
+        "GIT_HTTP_LOW_SPEED_LIMIT",
+        "GIT_HTTP_LOW_SPEED_TIME",
+    ] {
+        cmd.env_remove(var);
+    }
+    cmd
+}
+
+/// A fetched copy of a remote. Dropping it removes its temporary folder,
+/// whether the bundle that used it succeeded or not.
+struct Fetched {
+    base: PathBuf,
+    root: PathBuf,
+}
+
+impl Drop for Fetched {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.base);
+    }
+}
+
+/// Clone `url` into `<temp>/mdeezl-<pid>-<n>/<repo-name>`. On failure the
+/// reason is git's first `fatal:` line -- its last is generic advice.
+fn fetch(url: &str, temp: &Path) -> io::Result<Fetched> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let shown = display_url(url);
+    let fail = |reason: &str| {
+        io::Error::other(format!(
+            "could not fetch {shown}: {}",
+            reason.replace(url, &shown)
+        ))
+    };
+
+    let base = loop {
+        let n = N.fetch_add(1, Ordering::Relaxed);
+        let dir = temp.join(format!("mdeezl-{}-{n}", process::id()));
+        match fs::create_dir(&dir) {
+            Ok(()) => break dir,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(fail(&format!("cannot create a temporary folder: {e}"))),
+        }
+    };
+    let fetched = Fetched {
+        root: base.join(repo_name(url)),
+        base,
+    };
+    let output = clone_command(url, &fetched.root)
+        .output()
+        .map_err(|e| match e.kind() {
+            io::ErrorKind::NotFound => fail("git was not found on PATH"),
+            _ => fail(&format!("could not run git: {e}")),
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let lines = || stderr.lines().map(str::trim);
+        let reason = lines()
+            .find_map(|l| l.strip_prefix("fatal: "))
+            .or_else(|| lines().rfind(|l| !l.is_empty()))
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("git clone exited with {}", output.status));
+        return Err(fail(&reason));
+    }
+    Ok(fetched)
+}
+
 /// Each path `./`-prefixed, so a leading `:` is not read as pathspec magic, and
 /// NUL-terminated. Glob characters are wrapped in bracket classes so git's
 /// tracked-file lookup treats the name literally. Never backslash escaping: Git
@@ -548,29 +727,13 @@ fn git_ignored(root: &Path, paths: &[String]) -> Result<HashSet<String>, String>
     #[cfg(test)]
     GIT_SPAWNS.with(|n| n.set(n.get() + 1));
 
-    let mut cmd = Command::new("git");
+    let mut cmd = git_command();
     cmd.arg("-C")
         .arg(root)
         .args(["check-ignore", "-z", "-v", "-n", "--stdin"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    for var in GIT_LOCAL_ENV_VARS {
-        cmd.env_remove(var);
-    }
-    // Under test, isolate git from the host's configuration and from any
-    // repository above the temp directory, as the end-to-end harness does. Set
-    // on the child, so no process-wide `set_var` is needed.
-    #[cfg(test)]
-    {
-        let iso = env::temp_dir().join(format!("mdeezl-gitiso-{}", process::id()));
-        let _ = fs::create_dir_all(&iso);
-        let _ = fs::write(iso.join("gitconfig"), "");
-        cmd.env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", iso.join("gitconfig"))
-            .env("XDG_CONFIG_HOME", &iso)
-            .env("GIT_CEILING_DIRECTORIES", env::temp_dir());
-    }
     let mut child = cmd.spawn().map_err(|e| match e.kind() {
         io::ErrorKind::NotFound => "git was not found on PATH".to_string(),
         _ => format!("could not run git: {e}"),
@@ -668,7 +831,28 @@ pub struct Bundle {
 /// Build the whole document in memory, printing nothing, so every caller
 /// decides what reaches the user -- and a failure can never leave a partial
 /// document anywhere. INT-0001 records the peak-memory cost this accepts.
+/// A URL source (see [`is_url`]) is cloned first and removed afterwards.
 pub fn bundle(opts: &Options) -> io::Result<Bundle> {
+    bundle_in(opts, &env::temp_dir())
+}
+
+/// [`bundle`], with the folder a URL is cloned under made explicit for tests.
+fn bundle_in(opts: &Options, temp: &Path) -> io::Result<Bundle> {
+    match opts.root.to_str().filter(|s| is_url(s)) {
+        Some(url) => {
+            let fetched = fetch(url, temp)?;
+            let local = Options {
+                root: fetched.root.clone(),
+                ..opts.clone()
+            };
+            bundle_local(&local, Some(&display_url(url)))
+        }
+        None => bundle_local(opts, None),
+    }
+}
+
+/// Bundle a directory on disk, titled by `title` or, by default, its name.
+fn bundle_local(opts: &Options, title: Option<&str>) -> io::Result<Bundle> {
     let mut root = walk(opts)?;
     let mut notices = Vec::new();
     if opts.use_gitignore {
@@ -685,7 +869,10 @@ pub fn bundle(opts: &Options) -> io::Result<Bundle> {
             Err(reason) => notices.push(format!("gitignore filtering skipped: {reason}")),
         }
     }
-    let document = render_document(&root, opts);
+    let document = match title {
+        Some(title) => render_titled(title, &root, opts),
+        None => render_document(&root, opts),
+    };
     Ok(Bundle {
         name: root.name,
         document,
@@ -2101,5 +2288,269 @@ mod tests {
         );
         assert!(!b.notices[0].contains("mdeezl: "));
         assert!(b.document.contains("a.txt"));
+    }
+
+    /// A `file://` URL for a local folder, the one way every test builds it:
+    /// canonicalise, drop Windows' `\\?\`, forward slashes, then `file://`
+    /// before an absolute Unix path or `file:///` before a drive path.
+    fn file_url(path: &Path) -> String {
+        let p = path
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
+        let p = p.trim_start_matches("//?/");
+        if p.starts_with('/') {
+            format!("file://{p}")
+        } else {
+            format!("file:///{p}")
+        }
+    }
+
+    /// A committed repository: a `* text=auto` attribute, an LF text file
+    /// committed with `core.autocrlf=false`, and an untracked file beside it.
+    fn committed_repo(tag: &str) -> Tmp {
+        let dir = init_repo(tag);
+        fs::write(dir.join(".gitattributes"), "* text=auto\n").unwrap();
+        fs::write(dir.join("t.txt"), "one\ntwo\n").unwrap();
+        git(
+            &dir,
+            &[
+                "-c",
+                "core.autocrlf=false",
+                "add",
+                "--",
+                ".gitattributes",
+                "t.txt",
+            ],
+        );
+        git(
+            &dir,
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "core.autocrlf=false",
+                "commit",
+                "-q",
+                "-m",
+                "init",
+            ],
+        );
+        fs::write(dir.join("untracked.txt"), "not committed\n").unwrap();
+        dir
+    }
+
+    fn is_empty_dir(dir: &Path) -> bool {
+        fs::read_dir(dir).unwrap().next().is_none()
+    }
+
+    /// T-002.
+    #[test]
+    fn test_is_url() {
+        for yes in ["https://x/y", "http://x/y", "file:///x"] {
+            assert!(is_url(yes), "{yes}");
+        }
+        for no in [r"C:\x", "./https", "ftp:/weird", "git@host:x/y", ""] {
+            assert!(!is_url(no), "{no}");
+        }
+    }
+
+    /// T-002. The name becomes a path component, so it must never leave its
+    /// folder.
+    #[test]
+    fn test_repo_name() {
+        for (url, name) in [
+            ("https://github.com/octocat/Hello-World", "Hello-World"),
+            ("https://github.com/o/repo.git", "repo"),
+            ("https://github.com/o/repo/", "repo"),
+            ("file:///C:/tmp/fixture", "fixture"),
+            ("https://host/", "repository"),
+            ("https://host", "repository"),
+            ("https://h/o/r?x=1#top", "r"),
+            ("https://h/o/..", "repository"),
+            (r"https://h/o/a\..\..\x", "repository"),
+            ("https://h/o/c:x", "repository"),
+        ] {
+            assert_eq!(repo_name(url), name, "{url}");
+        }
+    }
+
+    /// T-002.
+    #[test]
+    fn test_display_url_strips_credentials() {
+        assert_eq!(
+            display_url("https://user:TOKEN@github.com/o/r"),
+            "https://github.com/o/r"
+        );
+        assert_eq!(display_url("https://tok@h/r"), "https://h/r");
+        for same in ["https://github.com/o/r", "file:///C:/x"] {
+            assert_eq!(display_url(same), same);
+        }
+    }
+
+    /// T-002. The exact command and environment that keep a fetch from ever
+    /// waiting on a person.
+    #[test]
+    fn test_clone_command_is_hardened() {
+        let cmd = clone_command("https://h/o/r", Path::new("dest"));
+        let args: Vec<String> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        let want = [
+            "-c",
+            "credential.helper=",
+            "-c",
+            "core.askPass=",
+            "-c",
+            "core.autocrlf=false",
+            "-c",
+            "core.eol=lf",
+            "-c",
+            "http.lowSpeedLimit=1",
+            "-c",
+            "http.lowSpeedTime=30",
+            "clone",
+            "--depth",
+            "1",
+            "--quiet",
+            "--",
+            "https://h/o/r",
+            "dest",
+        ];
+        assert_eq!(args, want);
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let set_to = |key: &str| {
+            envs.iter()
+                .find(|(k, _)| k == key)
+                .and_then(|(_, v)| v.clone())
+        };
+        let removed = |key: &str| envs.iter().any(|(k, v)| k == key && v.is_none());
+        assert_eq!(set_to("GIT_TERMINAL_PROMPT").as_deref(), Some("0"));
+        assert_eq!(set_to("GCM_INTERACTIVE").as_deref(), Some("never"));
+        assert_eq!(
+            set_to("GIT_ALLOW_PROTOCOL").as_deref(),
+            Some("https:http:file")
+        );
+        assert_eq!(set_to("GIT_LFS_SKIP_SMUDGE").as_deref(), Some("1"));
+        for var in [
+            "GIT_ASKPASS",
+            "SSH_ASKPASS",
+            "GIT_HTTP_LOW_SPEED_LIMIT",
+            "GIT_HTTP_LOW_SPEED_TIME",
+        ]
+        .into_iter()
+        .chain(GIT_LOCAL_ENV_VARS)
+        {
+            assert!(removed(var), "{var} must be removed");
+        }
+    }
+
+    /// T-002. The allow-list refuses ssh before any network is reached.
+    #[test]
+    fn test_fetch_rejects_protocol_outside_allow_list() {
+        require_git!("test_fetch_rejects_protocol_outside_allow_list");
+        let base = tmp_dir("fetch-ssh");
+        let err = fetch("ssh://127.0.0.1/x", &base).err().expect("must fail");
+        assert!(err.to_string().contains("not allowed"), "{err}");
+        assert!(is_empty_dir(&base));
+    }
+
+    /// T-002. A clone is bundled under its URL, holds only committed files with
+    /// LF text on every OS, and leaves nothing behind.
+    #[test]
+    fn test_fetch_file_url_bundles_the_clone() {
+        require_git!("test_fetch_file_url_bundles_the_clone");
+        let repo = committed_repo("fetch-src");
+        let url = file_url(&repo);
+        let base = tmp_dir("fetch-base");
+        let opts = Options {
+            root: PathBuf::from(&url),
+            ..Options::default()
+        };
+        let b = bundle_in(&opts, &base).unwrap();
+        let name = repo.file_name().unwrap().to_str().unwrap();
+        assert!(
+            b.document.starts_with(&format!("# {url}\n")),
+            "{}",
+            b.document
+        );
+        assert!(
+            b.document.contains(&format!("\n{name}/\n")),
+            "{}",
+            b.document
+        );
+        assert_eq!(b.name, name);
+        assert!(b.document.contains("\none\ntwo\n"), "exact LF bytes");
+        assert!(!b.document.contains("\r"));
+        assert!(!b.document.contains("untracked.txt"));
+        assert!(is_empty_dir(&base), "the clone must be removed");
+    }
+
+    /// T-002. The reason is git's first `fatal:` line, not its boilerplate.
+    #[test]
+    fn test_fetch_bad_url_errs() {
+        require_git!("test_fetch_bad_url_errs");
+        let base = tmp_dir("fetch-bad");
+        let missing = base.join("no-such-repo");
+        let url = format!("{}/no-such-repo", file_url(&base));
+        assert!(!missing.exists());
+        let err = fetch(&url, &base).err().expect("must fail").to_string();
+        assert!(err.starts_with("could not fetch "), "{err}");
+        assert!(
+            err.contains("does not appear to be a git repository"),
+            "{err}"
+        );
+        assert!(is_empty_dir(&base));
+    }
+
+    /// T-002. A server that accepts and never answers must not hang the fetch.
+    #[test]
+    fn test_stalled_server_fails_the_fetch() {
+        require_git!("test_stalled_server_fails_the_fetch");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for conn in listener.incoming() {
+                held.push(conn); // hold it open, send nothing
+            }
+        });
+        let base = tmp_dir("fetch-stall");
+        LOW_SPEED_OVERRIDE.with(|c| c.set(Some(3)));
+        let started = std::time::Instant::now();
+        let result = fetch(&format!("http://127.0.0.1:{port}/x.git"), &base);
+        LOW_SPEED_OVERRIDE.with(|c| c.set(None));
+        let err = result.err().expect("a stalled fetch must fail").to_string();
+        assert!(err.contains("Operation too slow"), "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(15));
+        assert!(is_empty_dir(&base));
+    }
+
+    /// T-002. Every git spawn goes through `git_command`, which sets
+    /// `CREATE_NO_WINDOW` on Windows; a process made that way still runs and
+    /// answers. `Command` does not expose creation flags, so a windowed
+    /// caller's lack of a console flash is checked by hand.
+    #[test]
+    fn test_git_commands_set_create_no_window() {
+        if !cfg!(windows) {
+            eprintln!("SKIP test_git_commands_set_create_no_window: Windows only");
+            return;
+        }
+        require_git!("test_git_commands_set_create_no_window");
+        let out = git_command().arg("--version").output().unwrap();
+        assert!(out.status.success());
+        assert!(String::from_utf8_lossy(&out.stdout).starts_with("git version"));
     }
 }

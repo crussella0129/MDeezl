@@ -2,7 +2,7 @@
 
 <!-- sprint-loop-intent-v2 -->
 - **Intent ID:** INT-0002
-- **State:** planned
+- **State:** active
 - **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-002 URL sources](../sprints/s3/sprint-plans/build-plan.md#t-002-url-sources)
 - **Completion evidence:** none
 - **Code evidence:** none
@@ -180,3 +180,5 @@ pure-`std` shape if entangled with it.
     `GIT_HTTP_LOW_SPEED_TIME`, which git lets override the stall settings.
   - The stall bound is scoped to transfers that stall once connected, which is
     what was measured.
+- 2026-09-19: `planned → active`; the sprint 3 Build Phase began T-002, the remote
+  half.

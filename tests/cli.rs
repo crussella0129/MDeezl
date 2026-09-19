@@ -1554,3 +1554,192 @@ fn test_bundle_matches_cli_output() {
         }
     }
 }
+
+/// A `file://` URL for a local folder, built as T-002's Notes specify.
+fn file_url(path: &Path) -> String {
+    let p = path
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let p = p.trim_start_matches("//?/");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else {
+        format!("file:///{p}")
+    }
+}
+
+/// A repository with one committed text file and one untracked file.
+fn committed_repo(tag: &str) -> Tmp {
+    let dir = git_repo(tag);
+    put(&dir, "kept.txt", "committed body\n");
+    git(
+        &dir,
+        &["-c", "core.autocrlf=false", "add", "--", "kept.txt"],
+    );
+    git(
+        &dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    );
+    put(&dir, "untracked.txt", "not committed\n");
+    dir
+}
+
+/// Run the binary with its temp folder redirected into `temp`, so a test can
+/// see exactly what a URL run leaves behind.
+fn run_with_temp(temp: &Path, args: &[&str]) -> Output {
+    let mut cmd = Command::new(EXE);
+    cmd.args(args)
+        .env("TMP", temp)
+        .env("TEMP", temp)
+        .env("TMPDIR", temp);
+    isolate(&mut cmd).output().expect("failed to run mdeezl")
+}
+
+fn is_empty_dir(dir: &Path) -> bool {
+    fs::read_dir(dir).unwrap().next().is_none()
+}
+
+/// T-002. A URL source is cloned, bundled under its URL, and cleaned up.
+#[test]
+fn test_cli_file_url_source_bundles_the_clone() {
+    require_git!("test_cli_file_url_source_bundles_the_clone");
+    let repo = committed_repo("url-src");
+    let url = file_url(&repo);
+    let temp = tmp_dir("url-temp");
+    let out = run_with_temp(&temp, &[&url]);
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    let doc = stdout_of(&out).replace("\r\n", "\n");
+    let name = repo.file_name().unwrap().to_str().unwrap();
+    assert!(doc.starts_with(&format!("# {url}\n")), "{doc}");
+    assert!(doc.contains(&format!("\n{name}/\n")), "{doc}");
+    assert!(doc.contains("committed body"), "{doc}");
+    assert!(
+        !doc.contains("untracked.txt"),
+        "only committed files: {doc}"
+    );
+    assert!(is_empty_dir(&temp), "the clone must be removed");
+}
+
+/// T-002. An unreachable URL: one line on stderr, no stdout, nothing left
+/// behind -- and a credential in the URL never reaches the output. Localhost
+/// only, so no network is used.
+#[test]
+fn test_cli_unreachable_url_exits_1() {
+    require_git!("test_cli_unreachable_url_exits_1");
+    let temp = tmp_dir("url-unreachable");
+    let out = run_with_temp(&temp, &["https://user:SECRET@127.0.0.1:1/x.git"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "{err}");
+    assert!(
+        err.starts_with("mdeezl: could not fetch https://127.0.0.1:1/x.git: "),
+        "{err}"
+    );
+    assert!(!err.contains("SECRET"), "{err}");
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. Without git a URL cannot be fetched, and says why.
+#[test]
+fn test_cli_url_without_git_exits_1() {
+    let temp = tmp_dir("url-no-git");
+    let out = Command::new(EXE)
+        .arg("file:///nowhere/repo")
+        .env("PATH", "")
+        .env("TMP", &*temp)
+        .env("TEMP", &*temp)
+        .env("TMPDIR", &*temp)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(
+        stderr_of(&out)
+            .trim_end()
+            .ends_with("git was not found on PATH"),
+        "{}",
+        stderr_of(&out)
+    );
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. URL-specific needles: the older help already said "git on your
+/// PATH", so a bare `git` would prove nothing.
+#[test]
+fn test_cli_help_documents_url_sources() {
+    let out = Command::new(EXE).arg("--help").output().unwrap();
+    let help = String::from_utf8(out.stdout).unwrap();
+    for needle in [
+        "URL",
+        "https://",
+        "shallow",
+        "temporary",
+        "removed",
+        "never prompts for credentials",
+        "credential helper",
+    ] {
+        assert!(help.contains(needle), "help must say {needle:?}");
+    }
+}
+
+/// T-002. The README documents URL sources, counts a failed fetch under exit
+/// code 1, and no longer lists remote repositories under "Not yet".
+#[test]
+fn test_readme_documents_url_sources() {
+    let readme = repo_file("README.md");
+    let flat = readme.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "URL",
+        "https://",
+        "shallow",
+        "temporary",
+        "removed",
+        "never prompts for credentials",
+        "credential helper",
+    ] {
+        assert!(flat.contains(needle), "README must say {needle:?}");
+    }
+    let exit = flat
+        .split("Exit codes:")
+        .nth(1)
+        .expect("an exit-code paragraph");
+    let exit = exit.split('.').next().unwrap_or(exit);
+    assert!(exit.contains("fetch"), "exit code 1 covers a fetch: {exit}");
+    let not_yet = flat.split("## Not yet").nth(1).expect("a Not yet section");
+    let not_yet = not_yet.split(" ## ").next().unwrap_or(not_yet);
+    assert!(!not_yet.contains("remote repositor"), "{not_yet}");
+}
+
+/// T-002, live: run by hand in the Test Phase with `--ignored`.
+#[test]
+#[ignore = "network: run by hand in the Test Phase"]
+fn test_live_github_clone() {
+    let temp = tmp_dir("url-live");
+    let out = run_with_temp(&temp, &["https://github.com/octocat/Hello-World"]);
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(doc.starts_with("# https://github.com/octocat/Hello-World\n"));
+    assert!(doc.contains("\nFile: README\n"));
+    assert!(is_empty_dir(&temp));
+
+    let started = std::time::Instant::now();
+    let out = run_with_temp(
+        &temp,
+        &["https://github.com/octocat/definitely-not-a-repo-mdeezl"],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert!(is_empty_dir(&temp));
+}
