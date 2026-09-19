@@ -1744,3 +1744,48 @@ fn test_live_github_clone() {
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
     assert!(is_empty_dir(&temp));
 }
+
+/// T-007. The introduction scopes "standard library only" to the engine's
+/// crate, now that the workspace also holds the desktop app.
+#[test]
+fn test_readme_scopes_std_only_to_the_engine() {
+    let readme = repo_file("README.md");
+    let intro = readme.split("\n## Install").next().unwrap();
+    let flat = intro.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in ["`mdeezl` crate", "standard library", "`mdeezl-gui`"] {
+        assert!(flat.contains(needle), "introduction must say {needle:?}");
+    }
+}
+
+/// T-007. The README's desktop-app section: how to run and install it, its
+/// controls, what it writes, and what a URL needs.
+#[test]
+fn test_readme_documents_desktop_app() {
+    let readme = repo_file("README.md");
+    let section = readme
+        .split("\n## Desktop app\n")
+        .nth(1)
+        .expect("a ## Desktop app section");
+    let section = section.split("\n## ").next().unwrap_or(section);
+    let flat = section.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "cargo run -p mdeezl-gui --release",
+        "cargo install --path gui",
+        "Source",
+        "Browse…",
+        "fence",
+        "inline",
+        "none",
+        "Respect .gitignore",
+        "Output folder",
+        "Generate",
+        ".md",
+        "replac",
+        "git",
+    ] {
+        assert!(
+            flat.contains(needle),
+            "Desktop app section must say {needle:?}"
+        );
+    }
+}

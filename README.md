@@ -9,8 +9,10 @@ everything an agent needs to understand it without filesystem access:
 2. the **full text of every included file**, each introduced by a
    `--- File: <path> ---` header.
 
-It is written in Rust against the standard library alone. `cargo tree` reports
-no dependencies, and the test suite adds none.
+The `mdeezl` crate, which is the engine and the command line, is written in
+Rust against the standard library alone. `cargo tree -p mdeezl` reports no
+dependencies, and its test suite adds none. The desktop app is a separate crate
+in the same workspace, `mdeezl-gui`, with its own dependencies (egui).
 
 ## Install
 
@@ -19,6 +21,28 @@ cargo install --path .
 ```
 
 Or run it straight from the checkout with `cargo run -- <args>`.
+
+## Desktop app
+
+Prefer a window? `mdeezl-gui` is a small app over the same engine, so the file
+it writes is exactly what the command line writes.
+
+```bash
+cargo run -p mdeezl-gui --release
+```
+
+To install it instead, run `cargo install --path gui`.
+
+1. **Source.** Type a folder path or an `https://` URL, click **Browse…**, or
+   drop a folder onto the window. A URL source needs git on your PATH.
+2. **Format.** Pick `fence`, `inline` or `none`. Choose whether to
+   **Respect .gitignore**.
+3. **Output folder.** This is where the file goes; it starts as your home
+   folder. **Browse…** picks another.
+4. **Generate.** Writes `<name>.md`, named after the folder or repository,
+   replacing a file of that name. The status line shows the path and size, or
+   what went wrong. Closing the window during a fetch waits for it to finish,
+   so nothing is left in your temp folder.
 
 ## Usage
 

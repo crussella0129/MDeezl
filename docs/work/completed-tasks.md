@@ -442,3 +442,26 @@
     Test Phase.
   - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
 - **Commit:** `5963acea9a633e54ab4ccc81aa0faaa7528796f2`
+
+## T-007 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** The README's introduction now scopes "standard library alone"
+  to the `mdeezl` crate, the engine and command line: `cargo tree -p mdeezl`
+  reports no dependencies. It also names the desktop app's separate crate,
+  `mdeezl-gui`.
+
+  A new `## Desktop app` section covers:
+  - how to run the app (`cargo run -p mdeezl-gui --release`) and install it
+    (`cargo install --path gui`);
+  - the four controls in order: Source with Browse… and drag-and-drop,
+    Format, Output folder, and Generate;
+  - that Generate writes `<name>.md`, replacing a file of that name;
+  - that a URL source needs git;
+  - that closing during a fetch waits for it.
+- **Verification:** two new tests, `test_readme_scopes_std_only_to_the_engine`
+  and `test_readme_documents_desktop_app`, each scoped to its section. 78 unit,
+  63 end-to-end and 26 GUI tests pass. fmt and clippy are clean.
+- **Commit:** PENDING
