@@ -194,7 +194,7 @@ impl App {
         let options = self.options();
         let dir = PathBuf::from(&self.output);
         let job = Arc::clone(&self.job);
-        let ctx = ctx.clone();
+        let worker_ctx = ctx.clone();
         let (tx, rx) = mpsc::channel();
         let handle = std::thread::spawn(move || {
             let result = job(&options).map_err(|e| e.to_string()).and_then(|bundle| {
@@ -211,7 +211,7 @@ impl App {
                 Ok(message)
             });
             let _ = tx.send(result);
-            ctx.request_repaint();
+            worker_ctx.request_repaint();
         });
         let label = if mdeezl::is_url(&self.source) {
             "Fetching…"
@@ -225,6 +225,11 @@ impl App {
         });
         self.status = label.to_string();
         self.status_is_error = false;
+        // Ask for the frame that starts the polling. Without it, the window
+        // would wait for input, or for the worker's own wake-up at the end:
+        // a live run showed 27 s without a single frame when Generate was
+        // triggered from outside the drawing pass.
+        ctx.request_repaint();
     }
 
     /// Everything that must happen even while the window is minimised:

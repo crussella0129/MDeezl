@@ -706,6 +706,23 @@ fn test_close_deferral_runs_in_logic_alone() {
     assert!(!app.is_working());
 }
 
+/// T-004. Generate asks for the frame that starts the polling, so a window
+/// that is not drawing at that moment still wakes up.
+#[test]
+fn test_generate_requests_a_repaint() {
+    let out = tmp_dir("request-out");
+    let (job, gate) = gated_job(gated_bundle);
+    let mut app = app_with("some/folder", &out, Some(job));
+    let (ctx, delays) = recording_context();
+    app.generate(&ctx);
+    assert!(
+        delays.lock().unwrap().contains(&Duration::ZERO),
+        "{:?}",
+        delays.lock().unwrap()
+    );
+    gate.release();
+}
+
 /// T-004. The worker itself wakes the window when its result is ready, with
 /// no tick run: what lets a hidden window collect a result promptly.
 #[test]
@@ -715,7 +732,14 @@ fn test_worker_wakes_the_window() {
     let mut app = app_with("some/folder", &out, Some(job));
     let (ctx, delays) = recording_context();
     app.generate(&ctx);
-    assert!(delays.lock().unwrap().is_empty(), "nothing requested yet");
+    // Two passes settle egui's pending repaint on the tick's own 100 ms: the
+    // first consumes Generate's immediate request, the second re-arms from
+    // `Duration::MAX`. The worker's zero-delay request is then the soonest
+    // one, which is what the callback reports.
+    for _ in 0..2 {
+        let _ = ctx.run_logic(&egui::RawInput::default(), |ctx| app.tick(ctx));
+    }
+    delays.lock().unwrap().clear();
     gate.release();
     let deadline = Instant::now() + Duration::from_secs(10);
     while !delays.lock().unwrap().contains(&Duration::ZERO) {
