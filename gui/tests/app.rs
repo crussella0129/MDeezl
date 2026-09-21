@@ -840,3 +840,58 @@ fn test_hero_paints_weasel_shapes() {
     assert!(circles >= want_circles, "{circles} < {want_circles}");
     assert!(segments >= want_segments, "{segments} < {want_segments}");
 }
+
+// ===== Repairs found by driving the window by hand (sprint 3 Test Phase) =====
+
+/// A path pasted from a file manager or a chat message carries spaces, and
+/// the untrimmed string failed with "The filename, directory name, or volume
+/// label syntax is incorrect".
+#[test]
+fn test_generate_trims_the_fields() {
+    let src = plain_fixture("trim-src");
+    let out = tmp_dir("trim-out");
+    let mut h = harness(app_with(
+        &format!("  {}  ", src.display()),
+        Path::new(&format!("  {}  ", out.display())),
+        None,
+    ));
+    assert_eq!(h.state().options().root, src.to_path_buf());
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    wait_idle(&mut h);
+    let name = src.file_name().unwrap().to_str().unwrap();
+    assert!(
+        h.state().status().starts_with("Wrote "),
+        "{}",
+        h.state().status()
+    );
+    assert!(out.join(format!("{name}.md")).is_file());
+}
+
+/// A mistyped output folder was only reported after the whole bundle had
+/// been built, as a write failure.
+#[test]
+fn test_generate_rejects_an_output_that_is_not_a_folder() {
+    let src = plain_fixture("outcheck-src");
+    let holder = tmp_dir("outcheck");
+    let a_file = holder.join("a-file");
+    std::fs::write(&a_file, "not a folder\n").unwrap();
+    let (job, gate) = gated_job(gated_bundle);
+    for bad in [a_file.clone(), holder.join("no-such-folder")] {
+        let mut h = harness(app_with(
+            &src.display().to_string(),
+            &bad,
+            Some(Arc::clone(&job)),
+        ));
+        let ctx = h.ctx.clone();
+        h.state_mut().generate(&ctx);
+        assert!(!h.state().is_working(), "no job for {}", bad.display());
+        assert!(
+            h.state().status().starts_with("Not a folder: "),
+            "{}",
+            h.state().status()
+        );
+    }
+    assert_eq!(gate.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(std::fs::read_to_string(&a_file).unwrap(), "not a folder\n");
+}

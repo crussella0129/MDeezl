@@ -1789,3 +1789,79 @@ fn test_readme_documents_desktop_app() {
         );
     }
 }
+
+// ===== Repairs found by driving the CLI by hand (sprint 3 Test Phase) =====
+
+/// Each of these failed in a way that sent the reader looking in the wrong
+/// place, or spent seconds doing it.
+#[test]
+fn test_cli_explains_a_source_it_cannot_use() {
+    let cases: [(&str, &str); 4] = [
+        // Fell through to the file system: "The filename, directory name, or
+        // volume label syntax is incorrect".
+        ("ssh://127.0.0.1/x", "`ssh://` sources are not supported"),
+        ("ftp://host/x", "`ftp://` sources are not supported"),
+        ("git@github.com:o/r.git", "is an ssh address"),
+        // Spent seven seconds in DNS before failing.
+        ("https://", "has no host"),
+    ];
+    for (source, needle) in cases {
+        let started = std::time::Instant::now();
+        let out = Command::new(EXE).arg(source).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{source}");
+        assert!(out.stdout.is_empty(), "{source}");
+        let err = stderr_of(&out);
+        assert!(err.contains(needle), "{source}: {err}");
+        assert!(
+            err.contains("https://, http:// and file://"),
+            "{source}: {err}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{source} was slow"
+        );
+    }
+}
+
+/// A Windows path keeps working: `C:\x` has a colon but no user@host.
+#[test]
+fn test_cli_windows_path_is_not_mistaken_for_an_address() {
+    let dir = fixture("not-an-address");
+    let out = Command::new(EXE).arg(&*dir).output().unwrap();
+    assert!(out.status.success(), "{}", stderr_of(&out));
+}
+
+/// The path, the option and the file each failed anonymously before.
+#[test]
+fn test_cli_names_what_it_could_not_use() {
+    let dir = fixture("named-errors");
+    let missing = dir.join("no-such-folder");
+    let out = Command::new(EXE).arg(&missing).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr_of(&out).contains(&missing.display().to_string()),
+        "the missing path must be named: {}",
+        stderr_of(&out)
+    );
+
+    let out = Command::new(EXE).arg("--nope").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr_of(&out).contains("unknown option `--nope`"),
+        "{}",
+        stderr_of(&out)
+    );
+
+    // Writing to a directory: "Access is denied. (os error 5)" alone did not
+    // say what mdeezl had been trying to write.
+    let out = Command::new(EXE)
+        .arg(&*dir)
+        .arg("-o")
+        .arg(&*dir)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr_of(&out);
+    assert!(err.contains("could not write"), "{err}");
+    assert!(err.contains(&dir.display().to_string()), "{err}");
+}

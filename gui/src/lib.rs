@@ -72,7 +72,10 @@ pub type Job = Arc<dyn Fn(&Options) -> io::Result<Bundle> + Send + Sync>;
 fn write_output(dir: &Path, bundle: &Bundle) -> Result<PathBuf, String> {
     let stem = output_stem(&bundle.name);
     let target = dir.join(format!("{stem}.md"));
-    let temp = dir.join(format!(".{stem}.md.mdeezl-tmp"));
+    // The process id keeps two copies of the app, generating the same source
+    // into the same folder, from sharing one temporary file: driving two
+    // instances at once showed them writing the same name.
+    let temp = dir.join(format!(".{stem}.md.{}.mdeezl-tmp", std::process::id()));
     let written = fs::write(&temp, &bundle.document).and_then(|()| fs::rename(&temp, &target));
     match written {
         Ok(()) => Ok(target),
@@ -149,7 +152,10 @@ impl App {
     /// The options the engine runs with: the CLI's defaults plus the fields.
     pub fn options(&self) -> Options {
         Options {
-            root: PathBuf::from(&self.source),
+            // Trimmed: a path pasted from a file manager or a chat message
+            // often carries a space, and the raw string failed with "The
+            // filename, directory name, or volume label syntax is incorrect".
+            root: PathBuf::from(self.source.trim()),
             wrap: self.wrap,
             use_gitignore: self.use_gitignore,
             ..Options::default()
@@ -192,7 +198,12 @@ impl App {
             return self.fail("Choose an output folder");
         }
         let options = self.options();
-        let dir = PathBuf::from(&self.output);
+        let dir = PathBuf::from(self.output.trim());
+        // Check the destination before doing the work: a mistyped folder was
+        // otherwise only reported after a long bundle, as a write failure.
+        if !dir.is_dir() {
+            return self.fail(format!("Not a folder: {}", dir.display()));
+        }
         let job = Arc::clone(&self.job);
         let worker_ctx = ctx.clone();
         let (tx, rx) = mpsc::channel();

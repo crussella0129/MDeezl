@@ -159,6 +159,12 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String>
             "--exclude" => opts.ignore.push(value("--exclude")?),
             "--include" => opts.include.push(value("--include")?),
             "--no-gitignore" => opts.use_gitignore = false,
+            // Anything else beginning with `-` is a mistyped option, not a
+            // path: saying "unexpected second path `--nope`" sent the reader
+            // looking for a path they never typed.
+            other if other.starts_with('-') && other != "-" => {
+                return Err(format!("unknown option `{other}`"));
+            }
             other if root_seen => {
                 return Err(format!("unexpected second path `{other}`"));
             }
@@ -265,7 +271,10 @@ fn walk_children(dir: &Path, rel: &str, opts: &Options) -> (Vec<Node>, bool) {
 }
 
 fn walk(opts: &Options) -> io::Result<Node> {
-    let meta = fs::metadata(&opts.root)?;
+    // Name the path: "The system cannot find the file specified" alone left
+    // the reader guessing which path mdeezl had tried.
+    let meta = fs::metadata(&opts.root)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", opts.root.display())))?;
     if !meta.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -519,6 +528,36 @@ pub fn is_url(s: &str) -> bool {
     ["https://", "http://", "file://"]
         .iter()
         .any(|p| s.starts_with(p))
+}
+
+/// Why `source` cannot be used, when it looks like a URL but is not one
+/// mdeezl fetches. Without this, `ssh://host/repo` fell through to the file
+/// system and failed with "The filename, directory name, or volume label
+/// syntax is incorrect", and `https://` spent seven seconds in DNS.
+fn unsupported_source(source: &str) -> Option<String> {
+    let supported = "mdeezl fetches https://, http:// and file:// URLs";
+    if let Some((scheme, rest)) = source.split_once("://") {
+        if !is_url(source) {
+            return Some(format!(
+                "`{scheme}://` sources are not supported: {supported}"
+            ));
+        }
+        // A missing host is a typo, not a name to look up.
+        let authority = &rest[..rest.find('/').unwrap_or(rest.len())];
+        if authority.is_empty() && !source.starts_with("file://") {
+            return Some(format!("{source} has no host: {supported}"));
+        }
+        return None;
+    }
+    // git's own scp-like form, `user@host:path`, which is ssh under another
+    // spelling. A Windows path such as `C:\repo` has no `@` before its colon.
+    let head = &source[..source.find('/').unwrap_or(source.len())];
+    match (head.find('@'), head.find(':')) {
+        (Some(at), Some(colon)) if at < colon => Some(format!(
+            "`{source}` is an ssh address, which is not supported: {supported}"
+        )),
+        _ => None,
+    }
 }
 
 /// `url` as shown to a person -- heading, stderr, the GUI -- with any
@@ -838,6 +877,9 @@ pub fn bundle(opts: &Options) -> io::Result<Bundle> {
 
 /// [`bundle`], with the folder a URL is cloned under made explicit for tests.
 fn bundle_in(opts: &Options, temp: &Path) -> io::Result<Bundle> {
+    if let Some(why) = opts.root.to_str().and_then(unsupported_source) {
+        return Err(io::Error::other(why));
+    }
     match opts.root.to_str().filter(|s| is_url(s)) {
         Some(url) => {
             let fetched = fetch(url, temp)?;
@@ -886,12 +928,20 @@ fn run(opts: &Options) -> io::Result<()> {
     for notice in &bundle.notices {
         eprintln!("mdeezl: {notice}");
     }
+    // Name the file in any write failure: "Access is denied. (os error 5)"
+    // on its own does not say what mdeezl was trying to write.
+    let named = |e: io::Error| match &opts.sink {
+        Sink::Stdout => e,
+        Sink::File(path) => {
+            io::Error::new(e.kind(), format!("could not write {}: {e}", path.display()))
+        }
+    };
     let mut sink: Box<dyn Write> = match &opts.sink {
         Sink::Stdout => Box::new(BufWriter::new(io::stdout().lock())),
-        Sink::File(path) => Box::new(BufWriter::new(fs::File::create(path)?)),
+        Sink::File(path) => Box::new(BufWriter::new(fs::File::create(path).map_err(named)?)),
     };
-    sink.write_all(bundle.document.as_bytes())?;
-    sink.flush()
+    sink.write_all(bundle.document.as_bytes()).map_err(named)?;
+    sink.flush().map_err(named)
 }
 
 /// The whole command line: `args` are the arguments after the program name.
