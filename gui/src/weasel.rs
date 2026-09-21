@@ -34,15 +34,10 @@ pub enum Shape {
     },
 }
 
-/// A tube along the cubic Bézier `p0 c1 c2 p3`, its radius easing from `r0`
-/// to `r1`, sampled at `n` segments.
-fn bezier_tube(
-    [p0, c1, c2, p3]: [[f32; 2]; 4],
-    (r0, r1): (f32, f32),
-    n: usize,
-    color: Color32,
-) -> Shape {
-    let points = (0..=n)
+/// The points of a tube along the cubic Bézier `p0 c1 c2 p3`, its radius
+/// easing from `r0` to `r1`, sampled at `n` segments.
+fn bezier_points([p0, c1, c2, p3]: [[f32; 2]; 4], (r0, r1): (f32, f32), n: usize) -> Vec<[f32; 3]> {
+    (0..=n)
         .map(|i| {
             let t = i as f32 / n as f32;
             let u = 1.0 - t;
@@ -53,8 +48,50 @@ fn bezier_tube(
                 r0 + (r1 - r0) * t,
             ]
         })
-        .collect();
-    Shape::Tube { points, color }
+        .collect()
+}
+
+fn bezier_tube(curve: [[f32; 2]; 4], radii: (f32, f32), n: usize, color: Color32) -> Shape {
+    Shape::Tube {
+        points: bezier_points(curve, radii, n),
+        color,
+    }
+}
+
+/// One Bézier of a chain: its four control points, its radii, its samples.
+type Segment = ([[f32; 2]; 4], (f32, f32), usize);
+
+/// The points along several Béziers in a row, joined without repeating the
+/// shared points: how the back gets its two humps in a single body.
+fn chain_points(segments: &[Segment]) -> Vec<[f32; 3]> {
+    let mut points: Vec<[f32; 3]> = Vec::new();
+    for (curve, radii, n) in segments {
+        let part = bezier_points(*curve, *radii, *n);
+        let skip = usize::from(!points.is_empty());
+        points.extend(part.into_iter().skip(skip));
+    }
+    points
+}
+
+/// A thinner tube whose *lower edge* is the lower edge of `points`, with its
+/// radius a constant fraction of theirs. The pale belly then follows the
+/// body's outline exactly, and widens at the same rate the body does. Both
+/// ends ease in over `taper` points, so it fades into the fur instead of
+/// stopping with a blunt end.
+fn underside(points: &[[f32; 3]], fraction: f32, taper: usize) -> Vec<[f32; 3]> {
+    (0..points.len())
+        .map(|i| {
+            let from_end = points.len() - 1 - i;
+            let ramp = i.min(from_end).min(taper) + 1;
+            let fraction = fraction * ramp as f32 / (taper + 1) as f32;
+            // Straight down, so the pale edge lands on the body's lowest
+            // point at this station: the bottom of the chest and the neck,
+            // not the front of them, however steeply the body is falling.
+            let [x, y, r] = points[i];
+            let thin = r * fraction;
+            [x, y + (r - thin), thin]
+        })
+        .collect()
 }
 
 fn disc(x: f32, y: f32, radius: f32, color: Color32) -> Shape {
@@ -67,75 +104,139 @@ fn disc(x: f32, y: f32, radius: f32, color: Color32) -> Shape {
 
 /// The weasel, back to front: later shapes cover earlier ones.
 pub fn shapes() -> Vec<Shape> {
-    vec![
-        // The tail: long, low, and black at the tip, like a stoat's.
-        bezier_tube(
-            [[0.30, 0.40], [0.20, 0.47], [0.12, 0.42], [0.08, 0.30]],
-            (0.040, 0.024),
+    // The tail, and its dark tip taken from the tail's own last points, so
+    // the tip is the same outline: it widens exactly as the tail does.
+    let tail = bezier_points(
+        [
+            [0.175, 0.405],
+            [0.115, 0.475],
+            [0.060, 0.445],
+            [0.018, 0.34],
+        ],
+        (0.040, 0.018),
+        14,
+    );
+    let tip = tail[tail.len() - 5..].to_vec();
+
+    // The back: two humps, so it reads as the M of MDeezl. The body sits to
+    // the left of centre to leave the neck room to reach out.
+    let spine = chain_points(&[
+        (
+            [[0.17, 0.400], [0.18, 0.20], [0.24, 0.10], [0.32, 0.10]],
+            (0.078, 0.072),
+            10,
+        ),
+        (
+            [[0.32, 0.10], [0.39, 0.10], [0.405, 0.28], [0.46, 0.28]],
+            (0.072, 0.068),
+            10,
+        ),
+        (
+            [[0.46, 0.28], [0.515, 0.28], [0.53, 0.10], [0.60, 0.10]],
+            (0.068, 0.066),
+            10,
+        ),
+        // Down the shoulder, leaving it at 45 degrees.
+        (
+            [[0.60, 0.10], [0.700, 0.10], [0.715, 0.325], [0.755, 0.365]],
+            (0.066, 0.058),
             12,
-            FUR,
         ),
-        bezier_tube(
-            [[0.105, 0.365], [0.09, 0.34], [0.08, 0.32], [0.075, 0.28]],
-            (0.028, 0.022),
-            4,
-            DARK,
+        // The neck: long, reaching well out in front of the shoulder, and
+        // clearly narrower than the body.
+        (
+            [
+                [0.755, 0.365],
+                [0.790, 0.395],
+                [0.840, 0.365],
+                [0.878, 0.338],
+            ],
+            (0.052, 0.044),
+            10,
         ),
-        // The far legs, a shade behind the near ones.
+    ]);
+    // The pale throat: the underside of the neck, from the chest to the chin,
+    // taken from the neck's own points, so it traces that outline and widens
+    // exactly as the neck does. Both ends fade into the fur. Traced further
+    // back it becomes a second colour along the whole inside of the M, which
+    // reads as a two-tone letter rather than as an animal.
+    let throat = underside(&spine[spine.len() - 9..], 0.30, 3);
+
+    vec![
+        Shape::Tube {
+            points: tail,
+            color: FUR,
+        },
+        Shape::Tube {
+            points: tip,
+            color: DARK,
+        },
+        // The far hind leg, a shade behind the near one.
         bezier_tube(
-            [[0.34, 0.44], [0.33, 0.49], [0.31, 0.52], [0.30, 0.545]],
+            [[0.222, 0.435], [0.217, 0.48], [0.212, 0.52], [0.207, 0.555]],
             (0.030, 0.024),
             4,
             FUR_SHADE,
         ),
+        Shape::Tube {
+            points: spine,
+            color: FUR,
+        },
+        Shape::Tube {
+            points: throat,
+            color: CREAM,
+        },
+        // The near hind leg, and the near fore leg under the chest, both in
+        // front of the pale underside.
         bezier_tube(
-            [[0.70, 0.42], [0.71, 0.47], [0.72, 0.51], [0.73, 0.545]],
-            (0.028, 0.022),
-            4,
-            FUR_SHADE,
-        ),
-        // The body: the arched, bounding back that makes a weasel a weasel.
-        bezier_tube(
-            [[0.30, 0.41], [0.36, 0.12], [0.60, 0.10], [0.74, 0.36]],
-            (0.090, 0.066),
-            24,
-            FUR,
-        ),
-        // The near legs.
-        bezier_tube(
-            [[0.28, 0.44], [0.27, 0.49], [0.25, 0.52], [0.24, 0.55]],
+            [[0.165, 0.435], [0.160, 0.48], [0.155, 0.52], [0.150, 0.555]],
             (0.030, 0.024),
             4,
             FUR,
         ),
         bezier_tube(
-            [[0.76, 0.42], [0.77, 0.47], [0.78, 0.51], [0.79, 0.55]],
+            [
+                [0.757, 0.425],
+                [0.763, 0.47],
+                [0.769, 0.515],
+                [0.775, 0.555],
+            ],
             (0.028, 0.022),
             4,
             FUR,
         ),
-        // Neck and cream throat.
+        // The far fore leg, on the shoulder and in front of the pale chest,
+        // so it is joined to the body rather than floating beside it.
         bezier_tube(
-            [[0.72, 0.37], [0.76, 0.34], [0.80, 0.33], [0.84, 0.32]],
-            (0.064, 0.060),
+            [
+                [0.725, 0.425],
+                [0.731, 0.47],
+                [0.737, 0.515],
+                [0.743, 0.555],
+            ],
+            (0.028, 0.022),
+            4,
+            FUR_SHADE,
+        ),
+        // The ear, clear of the skull, then the head, then a muzzle that
+        // tapers to the nose.
+        disc(0.862, 0.258, 0.028, FUR),
+        disc(0.862, 0.262, 0.013, INNER_EAR),
+        disc(0.895, 0.325, 0.060, FUR),
+        bezier_tube(
+            [
+                [0.915, 0.340],
+                [0.933, 0.344],
+                [0.951, 0.348],
+                [0.968, 0.352],
+            ],
+            (0.038, 0.018),
             6,
             FUR,
         ),
-        bezier_tube(
-            [[0.745, 0.405], [0.78, 0.395], [0.82, 0.375], [0.86, 0.360]],
-            (0.020, 0.024),
-            6,
-            CREAM,
-        ),
-        // Head, snout, ear, eye and nose; the cream chin tucks under the snout.
-        disc(0.845, 0.305, 0.068, FUR),
-        disc(0.880, 0.352, 0.028, CREAM),
-        disc(0.915, 0.335, 0.040, FUR),
-        disc(0.815, 0.245, 0.028, FUR),
-        disc(0.815, 0.248, 0.015, INNER_EAR),
-        disc(0.872, 0.292, 0.012, DARK),
-        disc(0.876, 0.288, 0.004, Color32::WHITE),
-        disc(0.952, 0.340, 0.013, DARK),
+        disc(0.912, 0.315, 0.011, DARK),
+        disc(0.9155, 0.3115, 0.0035, Color32::WHITE),
+        disc(0.977, 0.353, 0.011, DARK),
     ]
 }
 
