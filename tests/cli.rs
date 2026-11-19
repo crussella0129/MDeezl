@@ -1528,24 +1528,57 @@ fn test_ci_updates_installs_and_logs_in_order() {
         .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
         .collect();
     assert_eq!(jobs, ["  rust:"], "exactly one job, which is the one above");
-    let job_keys: Vec<&str> = lines
+    // Every key the job has, wherever it sits. YAML does not care about
+    // order, so a `container:` written *after* the steps would be invisible
+    // to a check that stopped at `steps:` -- and a container image with the
+    // libraries baked in is exactly how "no package install" stays true in
+    // the log and false in fact.
+    let job_body: Vec<&str> = lines
         .iter()
         .copied()
         .skip_while(|l| *l != "  rust:")
         .skip(1)
-        .take_while(|l| l.trim() != "steps:")
+        .take_while(|l| l.starts_with("    "))
+        .collect();
+    let job_keys: Vec<&str> = job_body
+        .iter()
+        .copied()
+        .filter(|l| !l.starts_with("     "))
         .map(str::trim)
         .collect();
     assert_eq!(
         job_keys,
+        ["strategy:", "runs-on: ${{ matrix.os }}", "steps:"],
+        "the job's own keys, wherever they sit, and no others"
+    );
+    let strategy: Vec<&str> = job_body
+        .iter()
+        .copied()
+        .skip_while(|l| l.trim() != "strategy:")
+        .skip(1)
+        .take_while(|l| l.starts_with("      "))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        strategy,
         [
-            "strategy:",
             "fail-fast: false",
             "matrix:",
             "os: [ubuntu-latest, windows-latest]",
-            "runs-on: ${{ matrix.os }}",
         ],
-        "the job's own keys, before its steps, and no others"
+        "both legs, neither cancelling the other"
+    );
+    // And one workflow: a second file could add a job this test never reads.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows");
+    let mut workflows: Vec<String> = fs::read_dir(&dir)
+        .expect("a workflows directory")
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    workflows.sort();
+    assert_eq!(
+        workflows,
+        ["sprint-loops-ci.yml"],
+        "one workflow file, which is the one asserted above"
     );
 }
 
