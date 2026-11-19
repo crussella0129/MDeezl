@@ -1,19 +1,26 @@
 # Sprint 3 Test Report
 
-- **Verdict:** pass. Every acceptance criterion of
-  [INT-0006](../../../intents/INT-0006-desktop-gui.md) is proved by executed
-  tests, CI logs or recorded observation, except the eighth, which is a human
-  judgement and is recorded as the user's own.
+- **Verdict:** pass, with two things stated rather than claimed. Seven of
+  [INT-0006](../../../intents/INT-0006-desktop-gui.md)'s eight acceptance
+  criteria are proved by executed tests, CI logs or recorded observation. Of
+  those seven, one half-case is proved a layer down rather than in the window:
+  criterion 4 names "an unreachable **or unauthorised** URL", and the
+  unauthorised case is proved at the engine and at the command line, not
+  through the window. The **eighth criterion is not closed by this report**:
+  the weasel is a human judgement, the user has chosen this design from
+  rendered images, and the screenshot of the running window is in front of
+  them for their reading of it.
   [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md)'s remote
   half is proved; its git-ref half is **not in this sprint**, so that chapter
   stays `active`.
-- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`).
+- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`).
 - **Runner:** `cargo test --all -- --nocapture`, the project's canonical suite.
-- **CI:** [run 44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551)
-  passed on `ubuntu-latest` (job 135666884830) and `windows-latest` (job
-  135666884423). Both legs ran rustc 1.100.0, cargo 1.100.0, clippy 0.1.100
-  and rustup 1.29.3, installed by the run's own update step; git was 2.56.1 on
-  Linux and 2.56.0.windows.4 on Windows.
+- **CI:** [run 44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833)
+  passed on `ubuntu-latest` (job 135679613205) and `windows-latest` (job
+  135679612560). Both legs ran rustc 1.100.0, cargo 1.100.0 and clippy
+  0.1.100, under the images' own rustup 1.29.3 — the update steps pass
+  `--no-self-update`, so no run ever installs rustup. git was 2.56.1 on Linux
+  and 2.56.0.windows.4 on Windows.
 - **Local host:** Windows 11, rustc 1.99.1, cargo 1.99.1, rustup 1.29.2, git
   2.56.0.windows.3.
 - **Critique:** [critique.md](critique.md). Two rounds: `block`, then
@@ -25,17 +32,23 @@
 |-------|-----------------|-----------------|------------------|--------|
 | Unit | 79 passed | 79 passed | 79 passed | [unit-tests.md](unit-tests.md) |
 | Integration | passed | passed | passed | [integration-tests.md](integration-tests.md) |
-| End-to-end | 66 passed, 1 ignored | 66 passed, 1 ignored | 66 passed, 1 ignored | [e2e-tests.md](e2e-tests.md) |
+| End-to-end | 67 passed, 1 ignored | 67 passed, 1 ignored | 67 passed, 1 ignored | [e2e-tests.md](e2e-tests.md) |
 | Desktop app | 31 passed | 31 passed | 31 passed | [e2e-tests.md](e2e-tests.md) |
 
-That is 176 executed tests. The ignored one is `test_live_github_clone`, run
+That is 177 executed tests. The ignored one is `test_live_github_clone`, run
 by hand at the tested head: 1 passed in 2.01 s.
 
-**Every test that closed sprint 2 still passes, unedited.** The proof is a
-byte comparison, not a count: the 47,456-byte `mod tests` block of
-`24442f1:src/main.rs`, minus its closing brace, is still a byte prefix of
-`src/lib.rs` at this head. `tests/cli.rs` gained insertions plus exactly two
-deletions, the two gate lines T-005 replaced.
+**Every unit test that closed sprint 2 still passes, unedited**, and the
+proof is a byte comparison rather than a count: the 47,456-byte `mod tests`
+block of `24442f1:src/main.rs`, minus its closing brace, is still a byte
+prefix of `src/lib.rs` at this head.
+
+`tests/cli.rs` is insertions plus exactly two deletions — so **53 of its 54
+tests are unedited, and one is not**: `test_ci_updates_installs_and_logs_in_order`
+is INT-0005's guard, which pins the CI gate lines, so T-005 changed it in the
+same commit as the lines themselves, and the critique rounds then strengthened
+it twice more. That is the one test this sprint was always going to edit, and
+the mutation table is what keeps the edit honest.
 
 **Gates:** `cargo fmt --all --check` clean;
 `cargo clippy --workspace --all-targets -- -D warnings` clean.
@@ -69,9 +82,14 @@ Across five rounds in T-006 the user asked for "two humps to look like an 'M'
 for MDeezl"; a tail tip and a cream belly that "match the outline"; a front
 leg "bumped over like half of its width to the right"; a raised rump; a neck
 "extended out" and distinct from the back; and the sharp neck-to-back angle
-"rounded out" — then: "so much better… Nice work." Shown the final pair of
+"rounded out", after which they wrote "Nice work." Shown the final pair of
 variants, they chose the throat-only one: **"just do this one and call it a
 day."**
+
+These words are the user's messages in the sprint 3 Test Phase conversation.
+They are quoted identically in [e2e-tests.md](e2e-tests.md); no committed
+artifact holds them, which is why both records carry them verbatim rather
+than by reference.
 
 That is a verdict on the design, given from rendered images. The window in
 [window.png](window.png) is that design running at the tested head. Whether
@@ -93,9 +111,14 @@ the screenshot in front of them to make it.
   stalled (`test_stalled_server_fails_the_fetch`), a protocol outside the
   allow-list (`test_fetch_rejects_protocol_outside_allow_list`), git absent
   (`test_cli_url_without_git_exits_1`), and — new in this phase —
-  **unauthorised** (`test_unauthorised_repository_fails_without_prompting`: a
-  local socket answers 401 with a Basic challenge, and the fetch fails in
-  0.25 s with `terminal prompts disabled`);
+  **unauthorised**, twice over: a local socket answers 401 with a Basic
+  challenge, and the engine fails in 0.25 s with `terminal prompts disabled`
+  (`test_unauthorised_repository_fails_without_prompting`), while the real
+  binary against the same socket gives exit 1, empty stdout and one
+  `mdeezl: could not fetch …` line with no credentials in it
+  (`test_cli_unauthorised_url_exits_1`). The criterion is written in
+  command-line terms, so the engine-level assertion alone would not have met
+  it;
 - it never waits on a person: prompts, askpass and credential helpers off, a
   30-second stall limit, and the live clone that fails without prompting;
 - the temporary copy is removed, asserted after every fetch test and observed
@@ -117,22 +140,25 @@ with an isolated empty global config by design.
   "unedited". Two legs remain. The dependency property now reads as the
   `mdeezl` crate's, which the chapter already records.
 - **INT-0005.** The guard test changed in the same commit as the gate lines it
-  pins, and the mutation table was re-run: **44 rows, 0 not caught**.
+  pins, and the mutation table was re-run: **47 rows, 0 not caught**.
 
-  **This sprint closes an observation sprint 2 left open.** The lag-correction
+  **This phase closes an observation sprint 2 left open.** The lag-correction
   half of INT-0005's criterion — that `rustup update stable` actually moves a
   lagging runner image forward — could only be recorded then as *not
-  exercised*, because every update step reported `unchanged`. The tested
-  head's run reports, on **both** legs:
+  exercised*, because every update step reported `unchanged`. Two runs earlier
+  in this phase, on heads `c92ab73` and `cb11527`, report on **both** legs:
 
   ```
   stable-x86_64-unknown-linux-gnu updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
   stable-x86_64-pc-windows-msvc  updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
   ```
 
-  The images carried 1.99.1, the update step moved them to 1.100.0, and the
-  gates ran on 1.100.0. The same head passes locally on 1.99.1, so it is green
-  on two different stables. That log belongs to INT-0005 as evidence.
+  The images carried 1.99.1, the update step moved each to 1.100.0, and the
+  gates ran on 1.100.0. By the tested head's own run the images had caught up,
+  so its step reads `unchanged` — the other half of the same clause, hours
+  later, green under both readings. The head also passes locally on 1.99.1, so
+  it is green on two different stables. Those logs belong to INT-0005 as
+  evidence.
 
 ## Deviations from the locked plan
 
@@ -141,8 +167,8 @@ recorded here rather than folded in silently.
 
 | Plan text | What is true now | Why |
 |-----------|------------------|-----|
-| T-002: "**WHEN** the source argument is not a URL — including … `git@host:x/y` … — **THEN** mdeezl **SHALL** treat it as a local path, as before." | An ssh address is refused with "`git@host:x/y` is an ssh address, which is not supported", and the three supported schemes are named. | Driving the CLI by hand, it produced "The filename, directory name, or volume label syntax is incorrect" — the file system's answer to a path nobody meant to type. |
-| T-001: "its stdout, its stderr … and its exit codes 0, 1 and 2 **SHALL** be unchanged" | A mistyped option (`--wrap-none`) now exits **2** with "unknown option", where it used to exit 1 as "unexpected second path". | The old message sent the reader looking for a path they never typed. The cost is that a `-`-leading folder needed an escape, so `--` was added, documented in `--help` and the README, and pinned by `test_cli_names_what_it_could_not_use`. |
+| T-002: "**WHEN** the source argument is not a URL — including … `git@host:x/y` … — **THEN** mdeezl **SHALL** treat it as a local path, as before." | Three shapes are refused rather than read as paths: any `<scheme>://` outside the three supported ones, an ssh address such as `git@host:x/y`, and a URL with no host, which now fails with `has no host` instead of after a DNS wait. A Windows path still works: `C:\x` has a colon but no `user@host`. | Driving the CLI by hand, each produced "The filename, directory name, or volume label syntax is incorrect" — the file system’s answer to a path nobody meant to type — and `https://` spent 7.5 s in DNS first. Pinned by `test_cli_explains_a_source_it_cannot_use` and `test_cli_windows_path_is_not_mistaken_for_an_address`. |
+| T-001: "its stdout, its stderr … and its exit codes 0, 1 and 2 **SHALL** be unchanged" | Three changes under this one clause. A mistyped option (`--wrap-none`) now exits **2** with "unknown option", where it used to exit 1 as "unexpected second path". A missing source path is named: `<path>: <os error>`. A failed `-o` write is named too: `could not write <path>: <os error>`. | Each old message sent the reader somewhere other than the mistake: a path they never typed, and two OS errors with no subject. The exit-code change cost a `-`-leading folder its only spelling, so `--` was added, documented in `--help` and the README, and pinned by `test_cli_names_what_it_could_not_use`. |
 | T-004: "write the document to a temporary sibling, `<output>/.<name>.md.mdeezl-tmp`" | The name carries the process id: `.<name>.md.<pid>.mdeezl-tmp`. | Two windows generating the same source into one folder shared that file and could delete each other's work mid-write. `test_temp_name_carries_the_pid` and `test_generate_unwritable_output_writes_nothing` pin it. |
 | T-004's status messages (`Choose a folder or URL`, `Choose an output folder`) | A third: `Not a folder: <path>`, shown before any job starts. | A mistyped output folder was otherwise only reported after the whole bundle had been built, as a write failure. |
 | The test plan's `test_generate_unwritable_output_writes_nothing`: "the output path is an existing *file*" | That case is now `test_generate_rejects_an_output_that_is_not_a_folder`; the original name drives a genuine write failure inside a valid folder. | The folder check above made the old arrangement stop before any write, so the test no longer reached the path it was traced to. |
@@ -151,11 +177,16 @@ recorded here rather than folded in silently.
 No CI step was added, so T-005's "any fix that adds a step is a plan
 amendment" was not triggered — and that is now asserted rather than assumed:
 the guard pins the job's step list exactly, every key of every step, and that
-there is exactly one job (mutation rows 42–44).
+there is exactly one job (mutation rows 42–47).
 
 ## Manual checks
 
-Run against `target/release/mdeezl-gui.exe` built from the tested head, driven
+Run against `target/release/mdeezl-gui.exe` built from `c92ab73`, two commits
+below the tested head. Everything changed since is test or documentation text:
+`gui/src/lib.rs` is untouched, `gui/Cargo.toml` and `Cargo.lock` are untouched,
+and the shipped half of `src/lib.rs` — everything above `#[cfg(test)] mod
+tests` — is byte-identical, which `diff` on the two blobs confirms. The
+binary these checks drove is the binary this head builds. They were driven
 entirely through the app's own window — UI Automation for focus, buttons, the
 native dialog and the status line, and posted key messages for typing — so
 nothing global was injected and no window was pulled to the foreground.
@@ -177,9 +208,10 @@ frozen window above, and eight more repaired together in `de66382` — and all
 nine are listed with their repairs in [e2e-tests.md](e2e-tests.md). Three
 regression tests on the engine and two on the window pin them.
 
-The two critique rounds then found fourteen more problems in the *tests*
-rather than the code: seven mechanisms that no test would have missed if they
-had been deleted. Those are listed, with the mutation that confirms each fix,
+The three critique rounds then raised 29 concerns about the *tests* and the
+records rather than the code — fourteen, then eight, then seven. Nine were
+mechanisms that no test would have missed if they had been deleted, which is
+why each fix is recorded with the mutation that confirms it. Those are listed, with the mutation that confirms each fix,
 in [critique.md](critique.md).
 
 ## What this phase cannot show

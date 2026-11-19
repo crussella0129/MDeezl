@@ -3,13 +3,13 @@
 - **Intents:** [INT-0006](../../../intents/INT-0006-desktop-gui.md),
   [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md),
   [INT-0005](../../../intents/INT-0005-reproducible-toolchain.md) (its guard)
-- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`)
+- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`)
 - **Result, by part:**
   - **Engine ↔ CLI:** passed.
   - **GUI ↔ engine:** passed.
   - **CI observation, both legs:** passed. Both compiled `mdeezl-gui` and ran
     its tests, and neither installed a system package.
-  - **Gate mutation check:** passed. All 44 changes fail their named test.
+  - **Gate mutation check:** passed. All 47 changes fail their named test.
 
 The first two are the composition this sprint is about: the GUI and the CLI
 must produce the same bytes, and they do because they call one function.
@@ -45,37 +45,42 @@ shared function, by construction rather than by comparison of two renderers.
 ## CI observation
 
 The tested head's run is
-[44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551),
-a push to `dev`, which concluded **success on both legs**: job 135666884830 on
-`ubuntu-latest` and job 135666884423 on `windows-latest`. The previous head's
-run, [44550746892](https://github.com/crussella0129/MDeezl/actions/runs/44550746892),
-logged the same lines and the same counts.
+[44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833),
+a push to `dev`, which concluded **success on both legs**: job 135679613205 on
+`ubuntu-latest` and job 135679612560 on `windows-latest`.
 
 | Log line | `ubuntu-latest` | `windows-latest` |
 |----------|-----------------|------------------|
-| pre-update `rustc +stable --version` | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
-| the update step's own report | `stable-x86_64-unknown-linux-gnu updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` | `stable-x86_64-pc-windows-msvc updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` |
-| post-install toolchain | `rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`, `rustup 1.29.3` | the same four |
+| pre-update `rustc +stable --version` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` |
+| the update step's own report | `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` | `stable-x86_64-pc-windows-msvc unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` |
+| post-install toolchain | `rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`; rustup is the image's own 1.29.3, because the update step passes `--no-self-update` | the same |
 | git | `git version 2.56.1` | `git version 2.56.0.windows.4` |
 | the GUI crate is compiled | `Running unittests src/lib.rs (…/mdeezl_gui-…)` | `Running unittests src\lib.rs (…\mdeezl_gui-….exe)` |
 | its tests run | `31 passed` | `31 passed` |
 | engine unit tests | `79 passed` | `79 passed` |
-| CLI end-to-end tests | `66 passed; 1 ignored` | `66 passed; 1 ignored` |
+| CLI end-to-end tests | `67 passed; 1 ignored` | `67 passed; 1 ignored` |
 | SKIP lines | 1: `SKIP test_git_commands_set_create_no_window: Windows only` | 4, the platform SKIPs sprint 1 recorded, each with its reason |
 | package installs | none: no `apt-get`, `choco`, `brew` or `vcpkg` line anywhere in the log | none |
 
-**This run closes sprint 2's open observation.** INT-0005's lag-correction
-half — that `rustup update stable` actually moves a lagging runner image
-forward — was recorded then as **not exercised**, because every update step
-had reported `unchanged`, and the chapter asked for the first CI log reading
-`updated` to be attached when it appeared. This is that log, on both legs:
-the images carried 1.99.1, the update step moved them to 1.100.0, and the
-gates then ran on 1.100.0. The suite also passes locally on 1.99.1, so the
-same head is green on two different stables.
+**This phase closes sprint 2's open observation — but not with this run.**
+INT-0005's lag-correction half, that `rustup update stable` actually moves a
+lagging runner image forward, was recorded in sprint 2 as **not exercised**,
+because every update step had reported `unchanged`; the chapter asked for the
+first CI log reading `updated` to be attached when it appeared. Two runs
+earlier in this same phase are that log, on both legs:
 
-Both CI runs on this sprint's last two heads show it, so the behaviour is not
-a one-off reading: the runner images were still on 1.99.1 on 2026-11-19, and
-each run moved its own image forward before the gates.
+| Run | Head | Both legs' update step |
+|-----|------|------------------------|
+| [44550746892](https://github.com/crussella0129/MDeezl/actions/runs/44550746892) | `c92ab73` | `updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` |
+| [44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551) | `cb11527` | the same, on both legs |
+
+The images carried 1.99.1, the update step moved each to 1.100.0, and the
+gates then ran on 1.100.0 — the behaviour sprint 2 could only reason about.
+By the tested head's run the images had caught up, so its own step reads
+`unchanged`, which is the other half of the same clause. Both readings
+therefore occur inside this one phase, hours apart, and the gates were green
+under each. The suite also passes locally on 1.99.1, so this head is green on
+two different stables.
 
 The absent package install is the measurable part of T-005's claim that the
 Linux windowing, GL and D-Bus libraries these features reach are loaded at run
@@ -102,22 +107,29 @@ keeps two legs for.
 - **What was mutated.** The tested head's `rust-toolchain.toml`, workflow and
   README, run against its tests.
 - **What each row shows.** Every change failed at its intended assertion, and
-  no row failed to compile. **44 rows, 0 not caught.**
+  no row failed to compile. **47 rows, 0 not caught.**
 
 Rows 1–39 are sprint 2's table, re-run here against the new workspace gate
 lines. Rows 40 and 41 restore the pre-workspace `fmt` and `clippy` lines, which
-the test plan requires to fail. **Rows 42–44 are new, from the two critique
-rounds**, and all three are additions rather than changes — the shape nothing
-caught before, because every other assertion says a step must be *present*:
+the test plan requires to fail. **Rows 42–47 are new, from the three critique
+rounds**, and every one of them is an *addition* rather than a change — the
+shape nothing caught before, because each earlier assertion says some step
+must be *present*:
 
-- **42** adds a step. The guard now compares the job's step list exactly, in
-  order.
+- **42** adds a step. The guard compares the job's step list exactly, in order.
 - **43** adds a `with:` key to an existing step. The comparison covers every
-  line of every step, not just the first, which is the "and no key" half of
-  T-005's clause.
+  line of every step, not just the first.
 - **44** adds a whole second job. `workflow_steps` reads one job's steps, so
-  nothing above it could see that; the guard now asserts there is exactly one
-  job.
+  nothing above it could see that.
+- **45** adds a job-level `container:`. This is the one that matters most: a
+  container image with the libraries baked in would keep the "no package
+  install" promise true in the log and false in fact.
+- **46** drops `dev` from the branches CI runs on, which would quietly stop
+  the gate running at all.
+- **47** adds a workflow-level `permissions:` key.
+
+Rows 45–47 are the "and no key" half of T-005's clause, which until round 3
+was asserted only inside the job's `steps:` block.
 
 The step-list comparison is made last, where a removed or disabled step still
 fails at its own assertion first and the message names which one.
@@ -167,7 +179,10 @@ fails at its own assertion first and the message names which one.
 | 41 | `- run: cargo clippy --all-targets -- -D warnings`, the pre-workspace gate line | workflow | `workflow must have the one-line step "run: cargo clippy --workspace --all-targets -- -D warnings"` |
 | 42 | a `sudo apt-get install -y libgtk-3-dev` step added before the gates | workflow | `the job's steps, in order, with no other step and no other key` (the added step is in the left list, not the right) |
 | 43 | a `with: fetch-depth: 0` key added to the checkout step | workflow | `the job's steps, in order, with no other step and no other key` (the added key is in the left list, not the right) |
-| 44 | a second job that installs a package | workflow | `exactly one job, which is the one above`, with left `["  rust:", "  install:"]` |
+| 44 | a second job that installs a package | workflow | `exactly one job, which is the one above`, left `["  rust:", "  install:"]` |
+| 45 | a job-level `container:` with the packages baked in | workflow | `the job's own keys, before its steps, and no others` |
+| 46 | `dev` dropped from the branches CI runs on | workflow | `when CI runs, and on which branches`, left `["push:", "branches: [main]", ...]` |
+| 47 | a workflow-level `permissions:` key added | workflow | `the workflow's own keys, and no others` |
 
 "toolchain" is `test_toolchain_file_declares_channel_and_components`,
 "workflow" is `test_ci_updates_installs_and_logs_in_order`, and "README" is

@@ -166,3 +166,27 @@ response; the fixes are in commit `cb11527`.
 The four "partly fixed" verdicts are all answered by the same two things: the
 report now exists, and the T-004 temporary-name deviation is recorded in its
 deviation table alongside the other five.
+
+## Round 3 — 2026-11-19
+
+Verdict: **block**, on seven concerns (C-201 to C-207). It confirmed seven of
+round 2's eight fixes and found the eighth incomplete, then reviewed the new
+`test-report.md` hardest, which is where most of what it found lives. All
+seven were taken; two were defects in the tests, five were the report
+misstating things a reader can check.
+
+| Concern | What it found | Response |
+|---------|---------------|----------|
+| C-201 | The deviation table named the exit-code change under T-001's clause but not the two stderr rewordings made under the same clause — the table's own stated job. | **accepted.** The row names all three. |
+| C-202 | The report said the manual checks ran on a binary "built from the tested head"; the e2e record says `c92ab73` and argues equivalence. The screenshot was committed two commits earlier still. | **accepted.** The report carries the premise and the diff argument, not just the conclusion. |
+| C-203 | T-005's clause is "no other step, **and no key**", and the guard could only see inside the job's `steps:` block. A job-level `container:` with the libraries baked in would keep "no package install" true in the log and false in fact. | **accepted.** The guard pins the workflow's own keys, the `on:` block and the job's keys before `steps:`; mutation rows 45–47 cover a `container:`, a narrowed `branches:`, and a `permissions:` key. |
+| C-204 | INT-0002's failure criterion is written in command-line terms, but the new unauthorised test asserted only the engine's `Err` — the same composition gap the phase had insisted on recording for the window. | **accepted.** `test_cli_unauthorised_url_exits_1` drives the real binary against the 401 socket. |
+| C-205 | The deviation row named only `git@host:x/y`; the refusal is general to every `<scheme>://` outside the three, and a URL with no host now fails differently. The two tests that pin all of it were named in no record. | **accepted.** The row is widened and both tests have their own table in [e2e-tests.md](e2e-tests.md). |
+| C-206 | The user's quoted verdict differed between the report and the record it cites, and neither said where the words come from. | **accepted.** Both records quote the same words and say they are the user's messages in this phase's conversation. |
+| C-207 | Two counts wrong: rustup is never installed by a run (`--no-self-update`), and the rounds raised 22 concerns, not fourteen. | **accepted.** Both corrected; the figure is now 29 across three rounds. |
+
+A note on the shape of this round: it found almost nothing wrong with the code
+and a good deal wrong with the writing about it. That is what a report is for,
+and it is why the verdict was `block` rather than `proceed-with-caveats` —
+a reader following those claims would have been misled about which binary was
+driven, which clause was departed from, and what CI had actually proved.

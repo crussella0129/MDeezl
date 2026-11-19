@@ -3,12 +3,16 @@
 - **Status:** possible. Everything the test plan promised is implemented, and
   the parts a headless runner cannot reach were driven by hand against the
   release window.
-- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`)
+- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
-- **Local result:** **66 passed, 0 failed, 1 ignored** in `tests/cli.rs`, and
+- **Local result:** **67 passed, 0 failed, 1 ignored** in `tests/cli.rs`, and
   **31 passed, 0 failed** in `gui/tests/app.rs`. The ignored one is the live
-  clone, run separately below. Sprint 2 closed with 54 end-to-end tests; all 54
-  ran unedited.
+  clone, run separately below. Sprint 2 closed with 54 end-to-end tests. **53
+  of them ran unedited**; the one exception is
+  `test_ci_updates_installs_and_logs_in_order`, INT-0005's guard, which pins
+  the CI gate lines and so changed in the same commit as the lines themselves,
+  then twice more from the critique. The mutation table is what keeps that
+  edit honest.
 - **CI result:** the same counts on both legs; see
   [integration-tests.md](integration-tests.md).
 
@@ -21,9 +25,21 @@
 | `test_main_rs_only_delegates_to_cli` | `src/main.rs`, with comments and blank lines removed, is at most 3 lines; it holds `mdeezl::cli(` and `std::process::exit(`, and no `use` or other `fn`. |
 | `test_cli_file_url_source_bundles_the_clone` | Exit 0, heading is the URL, the committed file present and the untracked one absent, and the test-owned `TMP`/`TEMP`/`TMPDIR` folder empty afterwards. |
 | `test_cli_unreachable_url_exits_1` | `https://user:SECRET@127.0.0.1:1/x.git` gives exit 1, empty stdout, and exactly one stderr line beginning `mdeezl: could not fetch https://127.0.0.1:1/x.git: ` which does not contain `SECRET`. Localhost only, so no network is used. The temp folder is empty afterwards. |
+| `test_cli_unauthorised_url_exits_1` | A local socket answers 401 with a Basic challenge, as a private repository does to an anonymous client. The binary gives exit 1, empty stdout, exactly one line beginning `mdeezl: could not fetch http://127.0.0.1:PORT/private.git: `, no `SECRET` from the URL's userinfo, a refusal inside 20 s, and an empty temp folder. This is INT-0002's criterion in its own command-line terms; the engine-level half is `test_unauthorised_repository_fails_without_prompting`. |
 | `test_cli_url_without_git_exits_1` | An empty `PATH` with a `file://` URL gives exit 1, empty stdout, and stderr ending `git was not found on PATH`. |
 | `test_cli_help_documents_url_sources` | `--help` contains `URL`, `https://`, `shallow`, `temporary`, `removed`, `never prompts for credentials` and `credential helper`. |
 | `test_readme_documents_url_sources` | The README carries the same URL-specific needles, its exit-code paragraph counts a failed fetch, and its "Not yet" section no longer contains `remote repositor`. |
+
+### The Test Phase's own repair tests
+
+These pin the behaviour the exploratory run changed, and are the assertions
+behind two of the deviations in the [test report](test-report.md).
+
+| Test | What it pins |
+|------|--------------|
+| `test_cli_explains_a_source_it_cannot_use` | `ssh://127.0.0.1/x` and `ftp://host/x` say which schemes are supported; `git@github.com:o/r.git` says it is an ssh address; `https://` with no host says `has no host`. Each exits 1 with empty stdout, names `https://, http:// and file://`, and **returns within 5 s** — the bound that catches the 7.5 s DNS wait the bare `https://` used to take. |
+| `test_cli_windows_path_is_not_mistaken_for_an_address` | A Windows path bundles normally: the `user@host` rule must not fire on `C:\x`, which has a colon and no `@`. |
+| `test_cli_names_what_it_could_not_use` | A missing path, a mistyped option (exit 2), a failed `-o` write, the `--` escape for a `-`-leading folder, and that `--help` and the README document that escape and what a mistyped option does. |
 
 ### New in T-007
 
@@ -202,10 +218,11 @@ criterion names "an unreachable **or unauthorised** URL" reported *in the
 window*. The window has `test_generate_unreachable_url_writes_nothing`, which
 drives the real job to an unreachable URL and proves the error reaches the
 status line with no file written. There is no GUI test for the unauthorised
-case: the window and the CLI run the same `mdeezl::bundle`, and the
-authentication path below it is proved by
-`test_unauthorised_repository_fails_without_prompting`. What is unproved is
-only that those two compose — which every other error path in this table
+case. It is proved twice below the window — at the engine by
+`test_unauthorised_repository_fails_without_prompting`, and through the real
+binary by `test_cli_unauthorised_url_exits_1` — and the window runs the same
+`mdeezl::bundle` as the binary. What is unproved is only that the window and
+that engine path compose, which every other error path in the table above
 shows they do. It is recorded here rather than left silent.
 
 ## What is not covered here
