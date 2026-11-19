@@ -2638,10 +2638,19 @@ mod tests {
         // that it cannot read a username with prompts disabled, or that
         // authentication failed. Either proves it gave up rather than asked.
         // Measured here: `could not read Username for 'http://127.0.0.1:PORT':
-        // terminal prompts disabled`, in 0.25 s.
-        let refused = ["terminal prompts disabled", "Authentication failed", "401"]
-            .iter()
-            .any(|needle| err.contains(needle));
+        // terminal prompts disabled`, in 0.25 s. The URL is dropped before
+        // the search, because an ephemeral port can itself contain `401`.
+        let reason = err.rsplit_once("127.0.0.1:").map_or(&err[..], |(_, rest)| {
+            rest.split_once('\'').map_or(rest, |(_, after)| after)
+        });
+        let refused = [
+            "terminal prompts disabled",
+            "Authentication failed",
+            "error: 401",
+            "HTTP 401",
+        ]
+        .iter()
+        .any(|needle| reason.contains(needle));
         assert!(refused, "the reason must name the refusal: {err}");
         assert!(err.starts_with("could not fetch"), "{err}");
         assert!(

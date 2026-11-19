@@ -75,7 +75,12 @@ every OS, and Git LFS files arrive as their pointer text.
 | `--exclude PATTERN` | add `PATTERN` to the ignore list (repeatable) |
 | `--include PATTERN` | keep entries matching `PATTERN` even if ignored (repeatable) |
 | `--no-gitignore` | do not apply the repository's `.gitignore` rules |
+| `--` | every later argument is a path, for a `PATH` that itself begins with `-` |
 | `-h`, `--help` | print usage |
+
+An argument beginning `-` that is not a flag is a mistake, not a path: mdeezl
+names it and exits `2`. To bundle a folder whose name really does begin with
+`-`, put `--` first.
 
 Exit codes: `0` success, `2` bad arguments, `1` the path could not be read, a
 URL could not be fetched, or the output could not be written. A non-zero exit never leaves a partial

@@ -1458,23 +1458,43 @@ fn test_ci_updates_installs_and_logs_in_order() {
     }
     // And nothing else. Every assertion above says a step must be there; an
     // *added* step -- a package install, say -- passes them all, and T-005
-    // promises CI gained no other step. Checked last, so a removed or
-    // disabled step still fails at its own assertion first.
-    let first_lines: Vec<&str> = steps.iter().map(|s| s[0]).collect();
+    // promises CI gained no other step and no other key. Every line of every
+    // step is compared, so an added `with:` or `env:` fails too. Checked
+    // last, so a removed or disabled step still fails at its own assertion
+    // first, where the message says which one.
     assert_eq!(
-        first_lines,
-        [
-            "uses: actions/checkout@v7",
-            "run: rustc +stable --version",
-            "run: rustup update --no-self-update stable",
-            "run: rustup toolchain install --no-self-update",
-            "shell: bash",
-            "run: cargo fmt --all --check",
-            "run: cargo clippy --workspace --all-targets -- -D warnings",
-            "run: cargo test --all -- --nocapture",
+        steps,
+        vec![
+            vec!["uses: actions/checkout@v7"],
+            vec!["run: rustc +stable --version"],
+            vec!["run: rustup update --no-self-update stable"],
+            vec!["run: rustup toolchain install --no-self-update"],
+            vec![
+                "shell: bash",
+                "run: |",
+                "rustc --version",
+                "cargo --version",
+                "cargo clippy --version",
+                "rustup --version",
+                "git --version",
+            ],
+            vec!["run: cargo fmt --all --check"],
+            vec!["run: cargo clippy --workspace --all-targets -- -D warnings"],
+            vec!["run: cargo test --all -- --nocapture"],
         ],
-        "the job's steps, in order, and no others"
+        "the job's steps, in order, with no other step and no other key"
     );
+    // `workflow_steps` reads one job's steps, so a second job -- a package
+    // installer, say -- would be invisible to everything above it.
+    let jobs: Vec<&str> = wf
+        .split_once("\njobs:\n")
+        .expect("a jobs: block")
+        .1
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
+        .collect();
+    assert_eq!(jobs, ["  rust:"], "exactly one job, which is the one above");
 }
 
 /// T-002. The README's Toolchain section states each required item, one
@@ -1898,6 +1918,24 @@ fn test_cli_names_what_it_could_not_use() {
         "{}",
         stderr_of(&out)
     );
+    // The escape has to be documented, not merely implemented: without a
+    // needle, both lines could be deleted with every test still green.
+    let help = Command::new(EXE).arg("--help").output().unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("every later argument is a path"),
+        "--help must document the `--` escape"
+    );
+    let readme = repo_file("README.md");
+    assert!(
+        readme.contains("every later argument is a path"),
+        "the README must document the `--` escape"
+    );
+    assert!(
+        readme.contains("names it and exits `2`"),
+        "the README must say what a mistyped option does"
+    );
+
     // `--` takes one path, not a second.
     let out = Command::new(EXE)
         .current_dir(&*dir)

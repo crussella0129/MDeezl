@@ -661,8 +661,11 @@ fn test_dropping_app_waits_for_worker() {
     // outcomes. The earlier arrangement released on a timer and asserted
     // only that the flag was set, which a slow thread could satisfy without
     // the drop ever blocking.
-    let (job, gate) = gated_job(|| {
+    let finished: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let job_finished = Arc::clone(&finished);
+    let (job, gate) = gated_job(move || {
         std::thread::sleep(Duration::from_millis(300));
+        *job_finished.lock().unwrap() = Some(Instant::now());
         gated_bundle()
     });
     let mut h = harness(app_with("some/folder", &out, Some(job)));
@@ -675,20 +678,20 @@ fn test_dropping_app_waits_for_worker() {
     }
     let done = Arc::clone(&gate.done);
     gate.release();
-    assert!(
-        !done.load(Ordering::SeqCst),
-        "the job must still be running when the drop begins"
-    );
-    let started = Instant::now();
+    let drop_began = Instant::now();
     drop(h);
     assert!(
         done.load(Ordering::SeqCst),
         "the drop returned before the job ended"
     );
+    // Compared against the job's own finish instant rather than a wall-clock
+    // bound: if the job had already finished when the drop began, the drop
+    // cannot have waited and this arrangement proved nothing. The margin is
+    // the job's whole 300 ms, not the few lines between release and drop.
+    let finished = finished.lock().unwrap().expect("the job recorded its end");
     assert!(
-        started.elapsed() >= Duration::from_millis(250),
-        "the drop must have waited for the job: it returned in {:?}",
-        started.elapsed()
+        finished > drop_began,
+        "the job was already over when the drop began, so the drop had nothing to wait for"
     );
 }
 
