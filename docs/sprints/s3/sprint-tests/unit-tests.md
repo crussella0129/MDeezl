@@ -3,11 +3,11 @@
 - **Tested head:** `77b0c00570c978b4d12ea2b8d40fa88816f285e2` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`, the project's canonical suite.
 - **Host:** Windows 11, `rustc 1.99.1` / `cargo 1.99.1`, `rustup 1.29.2`,
-  `git 2.56.0.windows.3`. CI ran the same head on `rustc 1.100.0`: by this
-  head the runner images already carried it, so the run's update step reads
-  `unchanged` — the two runs earlier in this phase are the ones that
-  installed it, and [integration-tests.md](integration-tests.md) has those
-  logs. Either way this head is green on two different stables, which is
+  `git 2.56.0.windows.3`. CI ran the same head on `rustc 1.100.0`, which the
+  run's own update step installed over the image's 1.99.1 — the image
+  varies between runs, and [integration-tests.md](integration-tests.md)
+  carries all four readings. Either way this head is green on two different
+  stables, which is
   [INT-0005](../../../intents/INT-0005-reproducible-toolchain.md)'s policy
   working rather than a separate claim.
 - **Result:** **79 passed, 0 failed, 0 ignored** in `src/lib.rs`, plus the

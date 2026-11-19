@@ -17,12 +17,13 @@
   stays `active`.
 - **Tested head:** `77b0c00570c978b4d12ea2b8d40fa88816f285e2` (branch `dev`).
 - **Runner:** `cargo test --all -- --nocapture`, the project's canonical suite.
-- **CI:** [run 44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833)
-  passed on `ubuntu-latest` (job 135679613205) and `windows-latest` (job
-  135679612560). Both legs ran rustc 1.100.0, cargo 1.100.0 and clippy
-  0.1.100, under the images' own rustup 1.29.3 — the update steps pass
+- **CI:** [run 44561690290](https://github.com/crussella0129/MDeezl/actions/runs/44561690290)
+  passed on `ubuntu-latest` (job 135692396143) and `windows-latest` (job
+  135692395486). Both legs ran rustc 1.100.0, cargo 1.100.0 and clippy
+  0.1.100, which the run's own update step installed over the image's 1.99.1,
+  under the image's rustup 1.29.3 — the update steps pass
   `--no-self-update`, so no run ever installs rustup. git was 2.56.1 on Linux
-  and 2.56.1.windows.1 on Windows.
+  and 2.56.0.windows.4 on Windows.
 - **Local host:** Windows 11, rustc 1.99.1, cargo 1.99.1, rustup 1.29.2, git
   2.56.0.windows.3.
 - **Critique:** [critique.md](critique.md). Four rounds: `block`,
@@ -149,8 +150,8 @@ with an isolated empty global config by design.
   **This phase closes an observation sprint 2 left open.** The lag-correction
   half of INT-0005's criterion — that `rustup update stable` actually moves a
   lagging runner image forward — could only be recorded then as *not
-  exercised*, because every update step reported `unchanged`. Two runs earlier
-  in this phase, on heads `c92ab73` and `cb11527`, report on **both** legs:
+  exercised*, because every update step reported `unchanged`. Three runs in
+  this phase, the tested head's among them, report on **both** legs:
 
   ```
   stable-x86_64-unknown-linux-gnu updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
@@ -158,11 +159,11 @@ with an isolated empty global config by design.
   ```
 
   The images carried 1.99.1, the update step moved each to 1.100.0, and the
-  gates ran on 1.100.0. By the tested head's own run the images had caught up,
-  so its step reads `unchanged` — the other half of the same clause, hours
-  later, green under both readings. The head also passes locally on 1.99.1, so
-  it is green on two different stables. Those logs belong to INT-0005 as
-  evidence.
+  gates ran on 1.100.0. A fourth run the same day started on 1.100.0 already
+  and reported `unchanged`: the image varies between runs, which is exactly
+  why the workflow logs the reading before and after. Green under every
+  combination, and green locally on 1.99.1, so this head is green on two
+  different stables. Those logs belong to INT-0005 as evidence.
 
 ## Deviations from the locked plan
 

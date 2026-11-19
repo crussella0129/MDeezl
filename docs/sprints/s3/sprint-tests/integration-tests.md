@@ -45,16 +45,16 @@ shared function, by construction rather than by comparison of two renderers.
 ## CI observation
 
 The tested head's run is
-[44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833),
-a push to `dev`, which concluded **success on both legs**: job 135679613205 on
-`ubuntu-latest` and job 135679612560 on `windows-latest`.
+[44561690290](https://github.com/crussella0129/MDeezl/actions/runs/44561690290),
+a push to `dev`, which concluded **success on both legs**: job 135692396143 on
+`ubuntu-latest` and job 135692395486 on `windows-latest`.
 
 | Log line | `ubuntu-latest` | `windows-latest` |
 |----------|-----------------|------------------|
-| pre-update `rustc +stable --version` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` |
-| the update step's own report | `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` | `stable-x86_64-pc-windows-msvc unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` |
+| pre-update `rustc +stable --version` | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` | `rustc 1.99.1 (58cf8f9c3 2026-10-13)` |
+| the update step's own report | `stable-x86_64-unknown-linux-gnu updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` | `stable-x86_64-pc-windows-msvc updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` |
 | post-install toolchain | `rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`; rustup is the image's own 1.29.3, because the update step passes `--no-self-update` | the same |
-| git | `git version 2.56.1` | `git version 2.56.1.windows.1` |
+| git | `git version 2.56.1` | `git version 2.56.0.windows.4` |
 | the GUI crate is compiled | `Running unittests src/lib.rs (…/mdeezl_gui-…)` | `Running unittests src\lib.rs (…\mdeezl_gui-….exe)` |
 | its tests run | `31 passed` | `31 passed` |
 | engine unit tests | `79 passed` | `79 passed` |
@@ -62,25 +62,28 @@ a push to `dev`, which concluded **success on both legs**: job 135679613205 on
 | SKIP lines | 1: `SKIP test_git_commands_set_create_no_window: Windows only` | 4, the platform SKIPs sprint 1 recorded, each with its reason |
 | package installs | none: no `apt-get`, `choco`, `brew` or `vcpkg` line anywhere in the log | none |
 
-**This phase closes sprint 2's open observation — but not with this run.**
-INT-0005's lag-correction half, that `rustup update stable` actually moves a
-lagging runner image forward, was recorded in sprint 2 as **not exercised**,
-because every update step had reported `unchanged`; the chapter asked for the
-first CI log reading `updated` to be attached when it appeared. Two runs
-earlier in this same phase are that log, on both legs:
+**This phase closes sprint 2's open observation.** INT-0005's lag-correction
+half — that `rustup update stable` actually moves a lagging runner image
+forward — was recorded in sprint 2 as **not exercised**, because every update
+step had reported `unchanged`; the chapter asked for the first CI log reading
+`updated` to be attached when it appeared. Four runs in this phase are that
+log, the tested head's among them:
 
 | Run | Head | Both legs' update step |
 |-----|------|------------------------|
 | [44550746892](https://github.com/crussella0129/MDeezl/actions/runs/44550746892) | `c92ab73` | `updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))` |
-| [44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551) | `cb11527` | the same, on both legs |
+| [44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551) | `cb11527` | the same |
+| [44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833) | `29ff270` | `unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` |
+| [44561690290](https://github.com/crussella0129/MDeezl/actions/runs/44561690290) | `77b0c00`, the tested head | `updated - rustc 1.100.0 … (from rustc 1.99.1 …)` |
 
-The images carried 1.99.1, the update step moved each to 1.100.0, and the
-gates then ran on 1.100.0 — the behaviour sprint 2 could only reason about.
-By the tested head's run the images had caught up, so its own step reads
-`unchanged`, which is the other half of the same clause. Both readings
-therefore occur inside this one phase, hours apart, and the gates were green
-under each. The suite also passes locally on 1.99.1, so this head is green on
-two different stables.
+**The runner image varies between runs, which is the point of logging it.**
+Three of these four runs, hours apart on the same day, started on 1.99.1 and
+were moved to 1.100.0 by the update step; one started on 1.100.0 already and
+reported `unchanged`. The Windows image's git moved with it: 2.56.0.windows.4
+in the three, 2.56.1.windows.1 in the one. Nothing in the project pins either,
+by design — INT-0005 says git's version floats with the image and is logged,
+and these runs are what that looks like. The gates were green under every
+combination, and the suite also passes locally on 1.99.1.
 
 The absent package install is the measurable part of T-005's claim that the
 Linux windowing, GL and D-Bus libraries these features reach are loaded at run
