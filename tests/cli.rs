@@ -1456,6 +1456,25 @@ fn test_ci_updates_installs_and_logs_in_order() {
     for banned in ["RUSTUP_TOOLCHAIN", "rustup override"] {
         assert!(!wf.contains(banned), "workflow must not use {banned:?}");
     }
+    // And nothing else. Every assertion above says a step must be there; an
+    // *added* step -- a package install, say -- passes them all, and T-005
+    // promises CI gained no other step. Checked last, so a removed or
+    // disabled step still fails at its own assertion first.
+    let first_lines: Vec<&str> = steps.iter().map(|s| s[0]).collect();
+    assert_eq!(
+        first_lines,
+        [
+            "uses: actions/checkout@v7",
+            "run: rustc +stable --version",
+            "run: rustup update --no-self-update stable",
+            "run: rustup toolchain install --no-self-update",
+            "shell: bash",
+            "run: cargo fmt --all --check",
+            "run: cargo clippy --workspace --all-targets -- -D warnings",
+            "run: cargo test --all -- --nocapture",
+        ],
+        "the job's steps, in order, and no others"
+    );
 }
 
 /// T-002. The README's Toolchain section states each required item, one
@@ -1781,7 +1800,9 @@ fn test_readme_documents_desktop_app() {
         "Generate",
         ".md",
         "replac",
-        "git",
+        // Not a bare "git": the section already says "Respect .gitignore",
+        // which would satisfy it however the URL sentence was edited.
+        "needs git on your PATH",
     ] {
         assert!(
             flat.contains(needle),
@@ -1848,6 +1869,46 @@ fn test_cli_names_what_it_could_not_use() {
     assert_eq!(out.status.code(), Some(2));
     assert!(
         stderr_of(&out).contains("unknown option `--nope`"),
+        "{}",
+        stderr_of(&out)
+    );
+
+    // Rejecting unknown options would otherwise make a folder whose name
+    // begins with `-` unbundlable, so `--` ends the options.
+    let odd = dir.join("-weird");
+    std::fs::create_dir_all(&odd).unwrap();
+    std::fs::write(odd.join("a.txt"), "inside\n").unwrap();
+    // Named relatively, from its parent, so the argument itself begins `-`.
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("--")
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("inside"));
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "without `--` it is an option");
+    assert!(
+        stderr_of(&out).contains("unknown option"),
+        "{}",
+        stderr_of(&out)
+    );
+    // `--` takes one path, not a second.
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("--")
+        .arg("-weird")
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr_of(&out).contains("unexpected second path"),
         "{}",
         stderr_of(&out)
     );

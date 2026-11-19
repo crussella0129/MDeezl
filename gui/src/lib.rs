@@ -64,6 +64,14 @@ pub fn output_stem(name: &str) -> &str {
     }
 }
 
+/// The temporary sibling `<stem>.md` is written through. The process id is in
+/// it because two copies of the app, generating the same source into the same
+/// folder, otherwise share one temporary file and can delete each other's
+/// work mid-write -- which driving two instances at once showed them doing.
+pub fn temp_name(stem: &str) -> String {
+    format!(".{stem}.md.{}.mdeezl-tmp", std::process::id())
+}
+
 /// What Generate runs: `mdeezl::bundle` in the app, a stand-in in tests.
 pub type Job = Arc<dyn Fn(&Options) -> io::Result<Bundle> + Send + Sync>;
 
@@ -72,10 +80,7 @@ pub type Job = Arc<dyn Fn(&Options) -> io::Result<Bundle> + Send + Sync>;
 fn write_output(dir: &Path, bundle: &Bundle) -> Result<PathBuf, String> {
     let stem = output_stem(&bundle.name);
     let target = dir.join(format!("{stem}.md"));
-    // The process id keeps two copies of the app, generating the same source
-    // into the same folder, from sharing one temporary file: driving two
-    // instances at once showed them writing the same name.
-    let temp = dir.join(format!(".{stem}.md.{}.mdeezl-tmp", std::process::id()));
+    let temp = dir.join(temp_name(stem));
     let written = fs::write(&temp, &bundle.document).and_then(|()| fs::rename(&temp, &target));
     match written {
         Ok(()) => Ok(target),

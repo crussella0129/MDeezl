@@ -16,7 +16,9 @@ use egui_kittest::{
     kittest::{NodeT, Queryable},
 };
 use mdeezl::{Bundle, Options, Wrap};
-use mdeezl_gui::{App, Job, format_size, home_folder, native_options, output_stem, weasel};
+use mdeezl_gui::{
+    App, Job, format_size, home_folder, native_options, output_stem, temp_name, weasel,
+};
 
 /// A temp directory that removes itself, even when an assertion panics.
 struct Tmp(PathBuf);
@@ -220,6 +222,18 @@ struct Gate {
 impl Gate {
     fn release(&self) {
         let _ = self.release.send(());
+    }
+}
+
+/// Releases a gate when it is dropped. A test that asserts while its job is
+/// still gated would otherwise wedge on the app's drop-join when the
+/// assertion fails -- the worker waits for a release that the panic skipped.
+/// Declared after the app it protects, so it runs first.
+struct ReleaseOnDrop(mpsc::Sender<()>);
+
+impl Drop for ReleaseOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.send(());
     }
 }
 
@@ -529,20 +543,80 @@ fn test_generate_unreachable_url_writes_nothing() {
     assert!(entries(&out).is_empty());
 }
 
-/// T-004. An output "folder" that is a file: an error, the file untouched.
+/// T-004. A write that genuinely fails, inside a real output folder: the
+/// temporary sibling's own name is occupied by a directory, so `fs::write`
+/// cannot create it. The error is shown, no output file appears, and an
+/// existing one is untouched.
+///
+/// The folder-that-is-a-file case this test used to drive now stops in
+/// `generate`'s folder check, before any job runs; it is
+/// `test_generate_rejects_an_output_that_is_not_a_folder`. Blocking the exact
+/// temporary name also proves `write_output` writes through `temp_name`.
 #[test]
 fn test_generate_unwritable_output_writes_nothing() {
-    let src = plain_fixture("unwritable-src");
-    let holder = tmp_dir("unwritable-holder");
-    let not_a_folder = holder.join("a-file");
-    std::fs::write(&not_a_folder, "keep me\n").unwrap();
-    let mut h = harness(app_with(&src.display().to_string(), &not_a_folder, None));
+    let out = tmp_dir("unwritable-out");
+    std::fs::write(out.join("gated.md"), "keep me\n").unwrap();
+    std::fs::create_dir(out.join(temp_name("gated"))).unwrap();
+    let (job, gate) = gated_job(gated_bundle);
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
+    let ctx = h.ctx.clone();
+    h.state_mut().generate(&ctx);
+    gate.release();
+    wait_idle(&mut h);
+    assert!(h.state().status_is_error(), "{}", h.state().status());
+    assert!(
+        h.state().status().starts_with("could not write"),
+        "{}",
+        h.state().status()
+    );
+    assert_eq!(
+        std::fs::read_to_string(out.join("gated.md")).unwrap(),
+        "keep me\n",
+        "the earlier good file survives a failed write"
+    );
+}
+
+/// T-004 (Test Phase repair). Two copies of the app writing one output
+/// folder must not share a temporary file: driving two at once showed them
+/// deleting each other's work mid-write.
+#[test]
+fn test_temp_name_carries_the_pid() {
+    let name = temp_name("repo");
+    assert!(name.starts_with(".repo.md."), "{name}");
+    assert!(name.ends_with(".mdeezl-tmp"), "{name}");
+    assert!(
+        name.contains(&std::process::id().to_string()),
+        "a shared name is the defect this repairs: {name}"
+    );
+}
+
+/// T-004. The stem rule is applied where it matters. `output_stem` alone is
+/// a pure function; this proves the written file takes its name from it, so
+/// a bundle whose name could leave the folder cannot.
+#[test]
+fn test_generate_applies_the_stem_rule_to_the_file() {
+    let out = tmp_dir("stem-out");
+    let job: Job = Arc::new(|_: &Options| {
+        Ok(Bundle {
+            name: "a/b".to_string(),
+            document: "escaped?\n".to_string(),
+            notices: Vec::new(),
+        })
+    });
+    let mut h = harness(app_with("some/folder", &out, Some(job)));
     let ctx = h.ctx.clone();
     h.state_mut().generate(&ctx);
     wait_idle(&mut h);
-    assert!(h.state().status_is_error(), "{}", h.state().status());
-    assert_eq!(std::fs::read_to_string(&not_a_folder).unwrap(), "keep me\n");
-    assert_eq!(entries(&holder), ["a-file"]);
+    assert_eq!(entries(&out), ["bundle.md"], "{}", h.state().status());
+    assert_eq!(
+        std::fs::read_to_string(out.join("bundle.md")).unwrap(),
+        "escaped?\n"
+    );
+    assert!(
+        h.state().status().contains("bundle.md"),
+        "{}",
+        h.state().status()
+    );
 }
 
 /// T-004. An empty field is named, and no job starts.
@@ -582,21 +656,40 @@ fn test_worker_panic_ends_job_with_error() {
 #[test]
 fn test_dropping_app_waits_for_worker() {
     let out = tmp_dir("drop-out");
-    let (job, gate) = gated_job(gated_bundle);
+    // The job keeps working for 300 ms after its release, so "the drop
+    // waited" and "the job happened to be over already" are different
+    // outcomes. The earlier arrangement released on a timer and asserted
+    // only that the flag was set, which a slow thread could satisfy without
+    // the drop ever blocking.
+    let (job, gate) = gated_job(|| {
+        std::thread::sleep(Duration::from_millis(300));
+        gated_bundle()
+    });
     let mut h = harness(app_with("some/folder", &out, Some(job)));
     let ctx = h.ctx.clone();
     h.state_mut().generate(&ctx);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while gate.calls.load(Ordering::SeqCst) == 0 {
+        assert!(Instant::now() < deadline, "the job never started");
+        std::thread::sleep(Duration::from_millis(5));
+    }
     let done = Arc::clone(&gate.done);
-    let releaser = std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(200));
-        gate.release();
-    });
+    gate.release();
+    assert!(
+        !done.load(Ordering::SeqCst),
+        "the job must still be running when the drop begins"
+    );
+    let started = Instant::now();
     drop(h);
     assert!(
         done.load(Ordering::SeqCst),
         "the drop returned before the job ended"
     );
-    releaser.join().unwrap();
+    assert!(
+        started.elapsed() >= Duration::from_millis(250),
+        "the drop must have waited for the job: it returned in {:?}",
+        started.elapsed()
+    );
 }
 
 /// T-004. Closing while working is deferred, then the app closes itself, and
@@ -667,14 +760,40 @@ fn test_close_deferral_runs_in_logic_alone() {
     let (ctx, delays) = recording_context();
     app.generate(&ctx);
 
-    // A logic pass with no input events: the only repaint request is the
-    // tick's own, and it is within 100 ms.
+    // A failing assertion below would otherwise leave the worker blocked on
+    // its gate and this test wedged in the app's drop-join. Declared after
+    // the app, so it releases first.
+    let _release = ReleaseOnDrop(gate.release.clone());
+
+    // The first pass consumes Generate's own immediate request. Then a
+    // control pass with no tick at all: egui records nothing, which is what
+    // makes the next pass's record the tick's own doing and no one else's.
+    // Without that control the assertion passed on Generate's zero, and
+    // deleting `request_repaint_after(POLL)` from `tick` changed nothing.
+    let quiet = ctx.run_logic(&egui::RawInput::default(), |ctx| app.tick(ctx));
+    assert!(!root_logic_commands(&quiet).contains(&ViewportCommand::CancelClose));
+    delays.lock().unwrap().clear();
+    let _ = ctx.run_logic(&egui::RawInput::default(), |_| {});
+    assert!(
+        delays.lock().unwrap().is_empty(),
+        "a pass without the tick must ask for nothing: {:?}",
+        delays.lock().unwrap()
+    );
+    delays.lock().unwrap().clear();
     let quiet = ctx.run_logic(&egui::RawInput::default(), |ctx| app.tick(ctx));
     assert!(!root_logic_commands(&quiet).contains(&ViewportCommand::CancelClose));
     let logged = delays.lock().unwrap().clone();
+    // egui reports the request as the asked-for delay less one predicted
+    // frame, so 100 ms arrives as about 83 ms. What matters is that the tick
+    // asked for one, and soon.
+    assert_eq!(
+        logged.len(),
+        1,
+        "exactly the tick's own request: {logged:?}"
+    );
     assert!(
-        !logged.is_empty() && logged.iter().all(|d| *d <= Duration::from_millis(100)),
-        "the tick keeps the window waking: {logged:?}"
+        logged[0] > Duration::ZERO && logged[0] <= Duration::from_millis(100),
+        "the tick alone must keep the window waking, within 100 ms: {logged:?}"
     );
 
     // A close request, in logic alone, is cancelled while the job runs.
@@ -792,6 +911,9 @@ fn test_icon_rasterises_the_weasel() {
     }
     let opaque = icon.rgba.chunks(4).filter(|p| p[3] >= 128).count();
     let share = opaque as f64 / (64.0 * 64.0);
+    // Printed so the figure in the sprint record can be read off a run,
+    // rather than quoted from a design the weasel has since moved past.
+    eprintln!("icon opaque share {share:.3}");
     assert!((0.15..=0.60).contains(&share), "opaque share {share:.3}");
 }
 

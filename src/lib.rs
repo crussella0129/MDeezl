@@ -48,6 +48,8 @@ OPTIONS:
         --exclude PATTERN add PATTERN to the ignore list (repeatable)
         --include PATTERN keep entries matching PATTERN even if ignored (repeatable)
         --no-gitignore    do not apply the repository's .gitignore rules
+        --                every later argument is a path, for a PATH that
+                          itself begins with -
     -h, --help            print this help
 
 WRAP MODES:
@@ -133,9 +135,21 @@ enum Parsed {
 fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String> {
     let mut opts = Options::default();
     let mut root_seen = false;
+    let mut end_of_options = false;
     let mut args = args.into_iter();
 
     while let Some(arg) = args.next() {
+        // After `--`, everything is a path. Without it, a directory whose
+        // name begins with `-` could not be bundled at all once unknown
+        // options began to be rejected.
+        if end_of_options {
+            if root_seen {
+                return Err(format!("unexpected second path `{arg}`"));
+            }
+            opts.root = PathBuf::from(arg);
+            root_seen = true;
+            continue;
+        }
         let mut value = |flag: &str| -> Result<String, String> {
             args.next()
                 .ok_or_else(|| format!("{flag} requires a value"))
@@ -159,6 +173,7 @@ fn parse_args<I: IntoIterator<Item = String>>(args: I) -> Result<Parsed, String>
             "--exclude" => opts.ignore.push(value("--exclude")?),
             "--include" => opts.include.push(value("--include")?),
             "--no-gitignore" => opts.use_gitignore = false,
+            "--" => end_of_options = true,
             // Anything else beginning with `-` is a mistyped option, not a
             // path: saying "unexpected second path `--nope`" sent the reader
             // looking for a path they never typed.
@@ -2588,6 +2603,54 @@ mod tests {
         assert!(is_empty_dir(&base));
     }
 
+    /// T-002. A repository that demands credentials: the half of INT-0002's
+    /// failure criterion that needs a server to refuse, rather than to be
+    /// absent. A local socket answers 401 with a Basic challenge, which is
+    /// what a private repository sends an anonymous client. mdeezl must fail
+    /// with that reason instead of waiting for someone to type a password.
+    #[test]
+    fn test_unauthorised_repository_fails_without_prompting() {
+        require_git!("test_unauthorised_repository_fails_without_prompting");
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let mut conn = conn;
+                let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+                // Read just enough of the request to answer it.
+                let mut buf = [0u8; 1024];
+                let _ = std::io::Read::read(&mut conn, &mut buf);
+                let _ = std::io::Write::write_all(
+                    &mut conn,
+                    b"HTTP/1.1 401 Unauthorized\r\n\
+                      WWW-Authenticate: Basic realm=\"mdeezl-test\"\r\n\
+                      Content-Length: 0\r\n\r\n",
+                );
+            }
+        });
+        let base = tmp_dir("fetch-401");
+        let started = std::time::Instant::now();
+        let err = fetch(&format!("http://127.0.0.1:{port}/private.git"), &base)
+            .err()
+            .expect("an unauthorised fetch must fail")
+            .to_string();
+        // git's own words for the refusal differ by build: it either reports
+        // that it cannot read a username with prompts disabled, or that
+        // authentication failed. Either proves it gave up rather than asked.
+        // Measured here: `could not read Username for 'http://127.0.0.1:PORT':
+        // terminal prompts disabled`, in 0.25 s.
+        let refused = ["terminal prompts disabled", "Authentication failed", "401"]
+            .iter()
+            .any(|needle| err.contains(needle));
+        assert!(refused, "the reason must name the refusal: {err}");
+        assert!(err.starts_with("could not fetch"), "{err}");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(15),
+            "it must fail promptly, not wait on a person"
+        );
+        assert!(is_empty_dir(&base));
+    }
+
     /// T-002. Every git spawn goes through `git_command`, which sets
     /// `CREATE_NO_WINDOW` on Windows; a process made that way still runs and
     /// answers. `Command` does not expose creation flags, so a windowed
@@ -2602,5 +2665,34 @@ mod tests {
         let out = git_command().arg("--version").output().unwrap();
         assert!(out.status.success());
         assert!(String::from_utf8_lossy(&out.stdout).starts_with("git version"));
+
+        // A spawned process's creation flags cannot be read back from
+        // outside it, so the two halves that make the promise true are
+        // asserted on this file instead: the flag is set in `git_command`,
+        // and `git_command` is the only place that spawns git. The needles
+        // are built rather than written, so they cannot match this test.
+        // Only the shipped half of the file: the tests below spawn git
+        // themselves, for fixtures, and never reach a user's window.
+        let source = include_str!("lib.rs");
+        let shipped = source
+            .split_once("\n#[cfg(test)]\nmod tests {")
+            .expect("a tests module")
+            .0;
+        let spawn = format!("Command::new({:?})", "git");
+        assert_eq!(
+            shipped.matches(&spawn).count(),
+            1,
+            "git must be spawned in exactly one place, which carries the flag"
+        );
+        let body = source
+            .split_once("\nfn git_command()")
+            .expect("a git_command function")
+            .1;
+        let body = body.split_once("\nfn ").map_or(body, |(b, _)| b);
+        let flag = format!("cmd.creation_flags({})", "CREATE_NO_WINDOW");
+        assert!(
+            body.contains(&flag),
+            "git_command must apply CREATE_NO_WINDOW, so a windowed parent never flashes a console"
+        );
     }
 }
