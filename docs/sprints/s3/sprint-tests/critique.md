@@ -1,5 +1,14 @@
 # Test Critique — Sprint 3
 
+Five adversarial read-only rounds, each against the code and the CI logs
+rather than against the records' word: `block`, `proceed-with-caveats`,
+`block`, `proceed-with-caveats`, `proceed-with-caveats`. Every round's
+concerns were answered, and each round's response table says how. The
+rounds are kept in full, in order, because what they caught — and what
+they caught twice — is the honest account of how much this phase's
+evidence had to be pushed on. The phase's final position is at the end
+of this file.
+
 ## Round 1 — 2026-11-18
 
 Read-only adversarial review of the locked plans, the three result artifacts,
@@ -104,8 +113,7 @@ claim checked against the code.
 - **Why it matters:** the releaser thread sleeps 200 ms and the assertion is only that `done` is true after `drop(h)` — if the main thread is descheduled past 200 ms the job has already finished and the drop returns instantly, passing vacuously on a cleanup guarantee.
 - **Suggested response:** tighten-assertion
 
-### Confidence
-block
+Round 1 verdict: **block**.
 
 ## Response to round 1
 
@@ -244,3 +252,33 @@ No sixth round was run. Round 5's verdict is accepted, its two findings are
 closed in the way it suggested, and neither touches an assertion, a test
 result or a CI reading — the evidence a sixth round would re-examine is
 unchanged. That reasoning is recorded here rather than left implicit.
+
+## Concerns
+
+These are what remains open at the phase's close. None is an unproved EARS
+clause or a weak assertion; each is a boundary the phase could not cross, and
+each is recorded in the result it belongs to rather than only here.
+
+### C-501: the weasel's eighth criterion is the user's to close
+- **Where:** [test-report.md](test-report.md) "The user's words on the weasel" / [INT-0006](../../../intents/INT-0006-desktop-gui.md)
+- **Quote:** INT-0006: "Whether it reads as a weasel is a human judgement, so the user verifies it from a screenshot."
+- **Failure mode:** intent-coverage
+- **Why it matters:** everything a test can prove about the weasel is proved — it is drawn from one shape list, with no image file and no decoding, and the icon rasterises. The judgement itself is the user's, and the screenshot of the running window is in front of them. The sprint cannot close this criterion on its own.
+- **Suggested response:** defer-with-rationale — the Loop Phase takes the user's verdict before INT-0006 is marked `realized`.
+
+### C-502: INT-0002's git-ref half is not in this sprint
+- **Where:** [e2e-tests.md](e2e-tests.md) "What is not covered here" / [test-plan.md](../sprint-plans/test-plan.md)
+- **Quote:** test plan: "**not in this sprint**; INT-0002 stays `active`"
+- **Failure mode:** intent-coverage
+- **Why it matters:** the remote half is proved; reading a git ref without mutating the working tree is backlog T-103. The chapter stays `active`, which is what the locked plan says it must.
+- **Suggested response:** defer-with-rationale.
+
+### C-503: three things the phase measured as far as it could, and no further
+- **Where:** [test-report.md](test-report.md) "What this phase cannot show" / [unit-tests.md](unit-tests.md) T-002 note
+- **Quote:** report: "A console flash shorter than 200 ms."
+- **Failure mode:** weak-assertion
+- **Why it matters:** the console sampling cannot resolve a flash shorter than its interval, so the mechanism is pinned in the source instead; an `insteadOf` rewrite cannot be staged without weakening the clone's config isolation, so the allow-list is proved at the fetch boundary and the rewrite rests on a planning measurement; and the window's unauthorised-URL half is proved at the engine and the command line rather than through the window. Each is stated in the record that carries the claim.
+- **Suggested response:** defer-with-rationale.
+
+## Confidence
+proceed-with-caveats
