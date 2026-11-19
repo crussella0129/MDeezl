@@ -2673,7 +2673,9 @@ mod tests {
         // are built rather than written, so they cannot match this test.
         // Only the shipped half of the file: the tests below spawn git
         // themselves, for fixtures, and never reach a user's window.
-        let source = include_str!("lib.rs");
+        // Normalised: a Windows checkout holds this file with CRLF, and
+        // `include_str!` embeds it as it lies on disk.
+        let source = include_str!("lib.rs").replace("\r\n", "\n");
         let shipped = source
             .split_once("\n#[cfg(test)]\nmod tests {")
             .expect("a tests module")
