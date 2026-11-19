@@ -13,3 +13,5 @@
 - [INT-0005 Reproducible toolchain between local and CI](intents/INT-0005-reproducible-toolchain.md)
 - [Sprint 2](sprints/s2/sprint-meta.md)
 - [Sprint 2](sprints/s2/sprint-meta.md)
+- [Sprint 3](sprints/s3/sprint-meta.md)
+- [INT-0006 Minimal desktop GUI](intents/INT-0006-desktop-gui.md)

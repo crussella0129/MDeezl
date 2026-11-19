@@ -6,7 +6,7 @@
 - **Work evidence:** [Sprint 2 build plan](../sprints/s2/sprint-plans/build-plan.md), [T-001 toolchain file and CI steps](../sprints/s2/sprint-plans/build-plan.md#t-001-toolchain-file-and-ci-steps)
 - **Completion evidence:** [T-001 completion](../work/completed-tasks.md#t-001-sprint-2), [T-002 completion](../work/completed-tasks.md#t-002-sprint-2)
 - **Code evidence:** [rust-toolchain.toml](../../rust-toolchain.toml), [CI workflow](../../.github/workflows/sprint-loops-ci.yml), [tests/cli.rs](../../tests/cli.rs)
-- **Test evidence:** [Sprint 2 test report](../sprints/s2/sprint-tests/test-report.md), [unit](../sprints/s2/sprint-tests/unit-tests.md), [integration](../sprints/s2/sprint-tests/integration-tests.md), [end-to-end](../sprints/s2/sprint-tests/e2e-tests.md)
+- **Test evidence:** [Sprint 2 test report](../sprints/s2/sprint-tests/test-report.md), [unit](../sprints/s2/sprint-tests/unit-tests.md), [integration](../sprints/s2/sprint-tests/integration-tests.md), [end-to-end](../sprints/s2/sprint-tests/e2e-tests.md); [Sprint 3 test report](../sprints/s3/sprint-tests/test-report.md), [integration](../sprints/s3/sprint-tests/integration-tests.md) (the `updated` CI logs, and the 49-row mutation table)
 - **Documentation evidence:** [README.md](../../README.md)
 
 ## Intent
@@ -118,17 +118,41 @@ stable was 1.98.1.
 - **Updating the development host's `stable` is machine-wide.** It changes the
   Rust used by every other project on that machine that tracks stable.
 - **CI runs grow slightly,** by one toolchain install or update per leg.
-- **Open observation: lag correction has not yet been seen in CI.** Through
-  sprint 2, every CI update step reported `unchanged`, because the runner
-  images already carried the true current stable. The evidence that
-  `rustup update stable` moves a lagging stable forward is one measurement on
-  the development host, where 1.96.0 moved to 1.98.1. The first CI log whose
-  update step reads `updated` should be attached here as evidence when it
-  appears. That happens when a new stable ships before the runner images pick
-  it up. Backlog item T-106 owns this, and each sprint's Test Phase checks the
-  update line until it is done.
+- **Lag correction has now been seen in CI, and the runner image is not a
+  constant.** Through sprint 2 every CI update step reported `unchanged`,
+  because the runner images already carried the true current stable, so the
+  only evidence that `rustup update stable` moves a lagging stable forward was
+  one measurement on the development host. Sprint 3's Test Phase caught the
+  other reading. On 2026-11-19, with 1.100.0 shipped and the images still
+  carrying 1.99.1, three runs logged on both legs:
+
+  ```
+  stable-x86_64-unknown-linux-gnu updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
+  stable-x86_64-pc-windows-msvc  updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))
+  ```
+
+  A fourth run the same day started on 1.100.0 already and reported
+  `unchanged`, and the Windows image's git moved with it — 2.56.0.windows.4 in
+  the three, 2.56.1.windows.1 in the one. **That variation is the finding.**
+  The image a run gets is not fixed, which is precisely why the workflow logs
+  the image's own stable before the update and the toolchain it actually uses
+  after: the two lines together say which of the two states a given run was
+  in. The gates were green under every combination, and the same head passes
+  locally on 1.99.1. Backlog T-106, which owned this observation, is done; the
+  runs are in sprint 3's
+  [integration tests](../sprints/s3/sprint-tests/integration-tests.md).
 
 ## Transition history
+- 2026-11-19: amended while `realized`, by sprint 3's Test Phase. The open
+  observation on lag correction is closed: three CI runs that day logged
+  `updated - rustc 1.100.0 … (from rustc 1.99.1 …)` on both legs, and a
+  fourth logged `unchanged`, which also showed that the runner image varies
+  between runs. Test evidence for sprint 3 attached. Backlog T-106 is done.
+  The guard test that pins the CI gate lines was strengthened four times in
+  that phase — it now pins the workflow's own keys, the `on:` block, the job's
+  keys wherever they sit, the whole step list including every key of every
+  step, and that there is one workflow file holding one job. The mutation
+  table that keeps it honest grew from 39 rows to 49.
 - 2026-09-18: created as `proposed` at the close of sprint 1, from the toolchain
   drift that failed that sprint's first CI run.
 - 2026-09-18: amended by sprint 2 research, still `proposed`. Recorded the
@@ -186,3 +210,10 @@ stable was 1.98.1.
   carried 1.98.1. Its outcome — CI runs the true current stable — held in every
   run. The mechanism rests on one host measurement, and the gap is carried as
   the open observation under Consequences, owned by backlog T-106.
+- 2026-09-19: noted during sprint 3 planning, with no state change. The gate
+  commands widen to cover the new workspace: `cargo fmt --all --check` and
+  `cargo clippy --workspace --all-targets -- -D warnings`. They still check
+  the same things, over one more crate. The guard test's pinned lines change
+  with them, and its mutation check is re-run. The desktop app's eframe needs
+  Rust 1.95 or later, so a pin must name 1.95 or newer; pinning stays a
+  one-line change.

@@ -1,6 +1,9 @@
 # Stops Cargo searching parent directories for a workspace manifest, which
-# otherwise picks up unrelated Cargo.toml files above the repository.
+# otherwise picks up unrelated Cargo.toml files above the repository. The
+# desktop app is a member with its own dependencies (INT-0006); this crate's
+# stay empty, and `cargo tree -p mdeezl` shows only it.
 [workspace]
+members = ["gui"]
 
 [package]
 name = "mdeezl"

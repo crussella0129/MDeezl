@@ -1414,9 +1414,10 @@ fn test_ci_updates_installs_and_logs_in_order() {
     );
     assert!(install < log, "the toolchain is logged after the install");
 
+    // Sprint 3 (T-005): the gates cover the whole workspace, desktop app included.
     for gate in [
-        "cargo fmt --check",
-        "cargo clippy --all-targets -- -D warnings",
+        "cargo fmt --all --check",
+        "cargo clippy --workspace --all-targets -- -D warnings",
         "cargo test --all -- --nocapture",
     ] {
         assert!(
@@ -1455,6 +1456,130 @@ fn test_ci_updates_installs_and_logs_in_order() {
     for banned in ["RUSTUP_TOOLCHAIN", "rustup override"] {
         assert!(!wf.contains(banned), "workflow must not use {banned:?}");
     }
+    // And nothing else. Every assertion above says a step must be there; an
+    // *added* step -- a package install, say -- passes them all, and T-005
+    // promises CI gained no other step and no other key. Every line of every
+    // step is compared, so an added `with:` or `env:` fails too. Checked
+    // last, so a removed or disabled step still fails at its own assertion
+    // first, where the message says which one.
+    assert_eq!(
+        steps,
+        vec![
+            vec!["uses: actions/checkout@v7"],
+            vec!["run: rustc +stable --version"],
+            vec!["run: rustup update --no-self-update stable"],
+            vec!["run: rustup toolchain install --no-self-update"],
+            vec![
+                "shell: bash",
+                "run: |",
+                "rustc --version",
+                "cargo --version",
+                "cargo clippy --version",
+                "rustup --version",
+                "git --version",
+            ],
+            vec!["run: cargo fmt --all --check"],
+            vec!["run: cargo clippy --workspace --all-targets -- -D warnings"],
+            vec!["run: cargo test --all -- --nocapture"],
+        ],
+        "the job's steps, in order, with no other step and no other key"
+    );
+    // Everything the step list cannot see. A job-level `container:` or
+    // `services:`, a workflow-level `defaults:` or `permissions:`, or a
+    // narrowed `on:`, all change what CI does without touching a step --
+    // and a `container:` is exactly how the "no package install" promise
+    // could be kept in the log while the packages came baked in.
+    let lines: Vec<&str> = wf
+        .lines()
+        .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .collect();
+    let top: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| !l.starts_with(' '))
+        .collect();
+    assert_eq!(
+        top,
+        ["name: sprint-loops-ci", "on:", "jobs:"],
+        "the workflow's own keys, and no others"
+    );
+    let on_block: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "on:")
+        .skip(1)
+        .take_while(|l| l.starts_with(' '))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        on_block,
+        [
+            "push:",
+            "branches: [main, dev]",
+            "pull_request:",
+            "branches: [main, dev]",
+        ],
+        "when CI runs, and on which branches"
+    );
+    let jobs: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "jobs:")
+        .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
+        .collect();
+    assert_eq!(jobs, ["  rust:"], "exactly one job, which is the one above");
+    // Every key the job has, wherever it sits. YAML does not care about
+    // order, so a `container:` written *after* the steps would be invisible
+    // to a check that stopped at `steps:` -- and a container image with the
+    // libraries baked in is exactly how "no package install" stays true in
+    // the log and false in fact.
+    let job_body: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "  rust:")
+        .skip(1)
+        .take_while(|l| l.starts_with("    "))
+        .collect();
+    let job_keys: Vec<&str> = job_body
+        .iter()
+        .copied()
+        .filter(|l| !l.starts_with("     "))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        job_keys,
+        ["strategy:", "runs-on: ${{ matrix.os }}", "steps:"],
+        "the job's own keys, wherever they sit, and no others"
+    );
+    let strategy: Vec<&str> = job_body
+        .iter()
+        .copied()
+        .skip_while(|l| l.trim() != "strategy:")
+        .skip(1)
+        .take_while(|l| l.starts_with("      "))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        strategy,
+        [
+            "fail-fast: false",
+            "matrix:",
+            "os: [ubuntu-latest, windows-latest]",
+        ],
+        "both legs, neither cancelling the other"
+    );
+    // And one workflow: a second file could add a job this test never reads.
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(".github/workflows");
+    let mut workflows: Vec<String> = fs::read_dir(&dir)
+        .expect("a workflows directory")
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    workflows.sort();
+    assert_eq!(
+        workflows,
+        ["sprint-loops-ci.yml"],
+        "one workflow file, which is the one asserted above"
+    );
 }
 
 /// T-002. The README's Toolchain section states each required item, one
@@ -1490,4 +1615,486 @@ fn test_readme_documents_toolchain_policy() {
         update < install,
         "the update comes before the install; the install alone updates nothing"
     );
+}
+
+// ============ Sprint 3: library, URL sources, desktop app (INT-0006, INT-0002) ============
+
+/// T-001. `src/main.rs` only hands the arguments to the library.
+#[test]
+fn test_main_rs_only_delegates_to_cli() {
+    let main = repo_file("src/main.rs");
+    let code: Vec<&str> = main
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with("//"))
+        .collect();
+    assert!(code.len() <= 3, "at most three code lines: {code:?}");
+    let joined = code.join("\n");
+    assert!(joined.contains("mdeezl::cli("), "{code:?}");
+    assert!(joined.contains("std::process::exit("), "{code:?}");
+    assert!(!code.iter().any(|l| l.starts_with("use ")), "{code:?}");
+    assert_eq!(joined.matches("fn ").count(), 1, "only fn main: {code:?}");
+}
+
+/// T-001. The library's document is the CLI's document, byte for byte, for
+/// every wrap mode with gitignore on and off. Neither side is isolated: the
+/// CLI child inherits this process's environment, so host git configuration
+/// reaches both equally.
+#[test]
+fn test_bundle_matches_cli_output() {
+    require_git!("test_bundle_matches_cli_output");
+    let dir = gitignore_fixture("lib-vs-cli");
+    let out = tmp_dir("lib-vs-cli-out");
+    let modes = [
+        (mdeezl::Wrap::Fence, "fence"),
+        (mdeezl::Wrap::Inline, "inline"),
+        (mdeezl::Wrap::None, "none"),
+    ];
+    for (wrap, flag) in modes {
+        for use_gitignore in [true, false] {
+            let file = out.join(format!("{flag}-{use_gitignore}.md"));
+            let mut cmd = Command::new(EXE);
+            cmd.arg(&*dir).args(["--wrap", flag, "-o"]).arg(&file);
+            if !use_gitignore {
+                cmd.arg("--no-gitignore");
+            }
+            let status = cmd.output().unwrap();
+            assert!(status.status.success(), "{}", stderr_of(&status));
+
+            let opts = mdeezl::Options {
+                root: dir.to_path_buf(),
+                wrap,
+                use_gitignore,
+                ..mdeezl::Options::default()
+            };
+            let bundle = mdeezl::bundle(&opts).unwrap();
+            assert!(
+                bundle.document.as_bytes() == fs::read(&file).unwrap(),
+                "library and CLI differ for --wrap {flag}, gitignore {use_gitignore}"
+            );
+            assert_eq!(
+                Some(bundle.name.as_str()),
+                dir.file_name().and_then(|n| n.to_str())
+            );
+        }
+    }
+}
+
+/// A `file://` URL for a local folder, built as T-002's Notes specify.
+fn file_url(path: &Path) -> String {
+    let p = path
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    let p = p.trim_start_matches("//?/");
+    if p.starts_with('/') {
+        format!("file://{p}")
+    } else {
+        format!("file:///{p}")
+    }
+}
+
+/// A repository with one committed text file and one untracked file.
+fn committed_repo(tag: &str) -> Tmp {
+    let dir = git_repo(tag);
+    put(&dir, "kept.txt", "committed body\n");
+    git(
+        &dir,
+        &["-c", "core.autocrlf=false", "add", "--", "kept.txt"],
+    );
+    git(
+        &dir,
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-m",
+            "init",
+        ],
+    );
+    put(&dir, "untracked.txt", "not committed\n");
+    dir
+}
+
+/// Run the binary with its temp folder redirected into `temp`, so a test can
+/// see exactly what a URL run leaves behind.
+fn run_with_temp(temp: &Path, args: &[&str]) -> Output {
+    let mut cmd = Command::new(EXE);
+    cmd.args(args)
+        .env("TMP", temp)
+        .env("TEMP", temp)
+        .env("TMPDIR", temp);
+    isolate(&mut cmd).output().expect("failed to run mdeezl")
+}
+
+fn is_empty_dir(dir: &Path) -> bool {
+    fs::read_dir(dir).unwrap().next().is_none()
+}
+
+/// T-002. A URL source is cloned, bundled under its URL, and cleaned up.
+#[test]
+fn test_cli_file_url_source_bundles_the_clone() {
+    require_git!("test_cli_file_url_source_bundles_the_clone");
+    let repo = committed_repo("url-src");
+    let url = file_url(&repo);
+    let temp = tmp_dir("url-temp");
+    let out = run_with_temp(&temp, &[&url]);
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    let doc = stdout_of(&out).replace("\r\n", "\n");
+    let name = repo.file_name().unwrap().to_str().unwrap();
+    assert!(doc.starts_with(&format!("# {url}\n")), "{doc}");
+    assert!(doc.contains(&format!("\n{name}/\n")), "{doc}");
+    assert!(doc.contains("committed body"), "{doc}");
+    assert!(
+        !doc.contains("untracked.txt"),
+        "only committed files: {doc}"
+    );
+    assert!(is_empty_dir(&temp), "the clone must be removed");
+}
+
+/// T-002. An unreachable URL: one line on stderr, no stdout, nothing left
+/// behind -- and a credential in the URL never reaches the output. Localhost
+/// only, so no network is used.
+#[test]
+fn test_cli_unreachable_url_exits_1() {
+    require_git!("test_cli_unreachable_url_exits_1");
+    let temp = tmp_dir("url-unreachable");
+    let out = run_with_temp(&temp, &["https://user:SECRET@127.0.0.1:1/x.git"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "{err}");
+    assert!(
+        err.starts_with("mdeezl: could not fetch https://127.0.0.1:1/x.git: "),
+        "{err}"
+    );
+    assert!(!err.contains("SECRET"), "{err}");
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. A repository that refuses an anonymous client, through the real
+/// binary: INT-0002's criterion is written in command-line terms, so the
+/// engine-level `test_unauthorised_repository_fails_without_prompting` is not
+/// enough on its own. A local socket answers 401 with a Basic challenge, as a
+/// private repository does, and mdeezl must report it rather than wait for a
+/// password that nobody can type.
+#[test]
+fn test_cli_unauthorised_url_exits_1() {
+    require_git!("test_cli_unauthorised_url_exits_1");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            let mut conn = conn;
+            let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let mut buf = [0u8; 1024];
+            let _ = std::io::Read::read(&mut conn, &mut buf);
+            let _ = std::io::Write::write_all(
+                &mut conn,
+                b"HTTP/1.1 401 Unauthorized\r\n\
+                  WWW-Authenticate: Basic realm=\"mdeezl-test\"\r\n\
+                  Content-Length: 0\r\n\r\n",
+            );
+        }
+    });
+    let temp = tmp_dir("url-unauthorised");
+    let started = std::time::Instant::now();
+    let out = run_with_temp(
+        &temp,
+        &[&format!("http://user:SECRET@127.0.0.1:{port}/private.git")],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty(), "no partial document on stdout");
+    let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "exactly one diagnostic: {err}");
+    assert!(
+        err.starts_with(&format!(
+            "mdeezl: could not fetch http://127.0.0.1:{port}/private.git: "
+        )),
+        "{err}"
+    );
+    assert!(!err.contains("SECRET"), "{err}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "it must refuse promptly, not wait on a person"
+    );
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. Without git a URL cannot be fetched, and says why.
+#[test]
+fn test_cli_url_without_git_exits_1() {
+    let temp = tmp_dir("url-no-git");
+    let out = Command::new(EXE)
+        .arg("file:///nowhere/repo")
+        .env("PATH", "")
+        .env("TMP", &*temp)
+        .env("TEMP", &*temp)
+        .env("TMPDIR", &*temp)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty());
+    assert!(
+        stderr_of(&out)
+            .trim_end()
+            .ends_with("git was not found on PATH"),
+        "{}",
+        stderr_of(&out)
+    );
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. URL-specific needles: the older help already said "git on your
+/// PATH", so a bare `git` would prove nothing.
+#[test]
+fn test_cli_help_documents_url_sources() {
+    let out = Command::new(EXE).arg("--help").output().unwrap();
+    let help = String::from_utf8(out.stdout).unwrap();
+    for needle in [
+        "URL",
+        "https://",
+        "shallow",
+        "temporary",
+        "removed",
+        "never prompts for credentials",
+        "credential helper",
+    ] {
+        assert!(help.contains(needle), "help must say {needle:?}");
+    }
+}
+
+/// T-002. The README documents URL sources, counts a failed fetch under exit
+/// code 1, and no longer lists remote repositories under "Not yet".
+#[test]
+fn test_readme_documents_url_sources() {
+    let readme = repo_file("README.md");
+    let flat = readme.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "URL",
+        "https://",
+        "shallow",
+        "temporary",
+        "removed",
+        "never prompts for credentials",
+        "credential helper",
+    ] {
+        assert!(flat.contains(needle), "README must say {needle:?}");
+    }
+    let exit = flat
+        .split("Exit codes:")
+        .nth(1)
+        .expect("an exit-code paragraph");
+    let exit = exit.split('.').next().unwrap_or(exit);
+    assert!(exit.contains("fetch"), "exit code 1 covers a fetch: {exit}");
+    let not_yet = flat.split("## Not yet").nth(1).expect("a Not yet section");
+    let not_yet = not_yet.split(" ## ").next().unwrap_or(not_yet);
+    assert!(!not_yet.contains("remote repositor"), "{not_yet}");
+}
+
+/// T-002, live: run by hand in the Test Phase with `--ignored`.
+#[test]
+#[ignore = "network: run by hand in the Test Phase"]
+fn test_live_github_clone() {
+    let temp = tmp_dir("url-live");
+    let out = run_with_temp(&temp, &["https://github.com/octocat/Hello-World"]);
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    let doc = stdout_of(&out);
+    assert!(doc.starts_with("# https://github.com/octocat/Hello-World\n"));
+    assert!(doc.contains("\nFile: README\n"));
+    assert!(is_empty_dir(&temp));
+
+    let started = std::time::Instant::now();
+    let out = run_with_temp(
+        &temp,
+        &["https://github.com/octocat/definitely-not-a-repo-mdeezl"],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-007. The introduction scopes "standard library only" to the engine's
+/// crate, now that the workspace also holds the desktop app.
+#[test]
+fn test_readme_scopes_std_only_to_the_engine() {
+    let readme = repo_file("README.md");
+    let intro = readme.split("\n## Install").next().unwrap();
+    let flat = intro.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in ["`mdeezl` crate", "standard library", "`mdeezl-gui`"] {
+        assert!(flat.contains(needle), "introduction must say {needle:?}");
+    }
+}
+
+/// T-007. The README's desktop-app section: how to run and install it, its
+/// controls, what it writes, and what a URL needs.
+#[test]
+fn test_readme_documents_desktop_app() {
+    let readme = repo_file("README.md");
+    let section = readme
+        .split("\n## Desktop app\n")
+        .nth(1)
+        .expect("a ## Desktop app section");
+    let section = section.split("\n## ").next().unwrap_or(section);
+    let flat = section.split_whitespace().collect::<Vec<_>>().join(" ");
+    for needle in [
+        "cargo run -p mdeezl-gui --release",
+        "cargo install --path gui",
+        "Source",
+        "Browse…",
+        "fence",
+        "inline",
+        "none",
+        "Respect .gitignore",
+        "Output folder",
+        "Generate",
+        ".md",
+        "replac",
+        // Not a bare "git": the section already says "Respect .gitignore",
+        // which would satisfy it however the URL sentence was edited.
+        "needs git on your PATH",
+    ] {
+        assert!(
+            flat.contains(needle),
+            "Desktop app section must say {needle:?}"
+        );
+    }
+}
+
+// ===== Repairs found by driving the CLI by hand (sprint 3 Test Phase) =====
+
+/// Each of these failed in a way that sent the reader looking in the wrong
+/// place, or spent seconds doing it.
+#[test]
+fn test_cli_explains_a_source_it_cannot_use() {
+    let cases: [(&str, &str); 4] = [
+        // Fell through to the file system: "The filename, directory name, or
+        // volume label syntax is incorrect".
+        ("ssh://127.0.0.1/x", "`ssh://` sources are not supported"),
+        ("ftp://host/x", "`ftp://` sources are not supported"),
+        ("git@github.com:o/r.git", "is an ssh address"),
+        // Spent seven seconds in DNS before failing.
+        ("https://", "has no host"),
+    ];
+    for (source, needle) in cases {
+        let started = std::time::Instant::now();
+        let out = Command::new(EXE).arg(source).output().unwrap();
+        assert_eq!(out.status.code(), Some(1), "{source}");
+        assert!(out.stdout.is_empty(), "{source}");
+        let err = stderr_of(&out);
+        assert!(err.contains(needle), "{source}: {err}");
+        assert!(
+            err.contains("https://, http:// and file://"),
+            "{source}: {err}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(5),
+            "{source} was slow"
+        );
+    }
+}
+
+/// A Windows path keeps working: `C:\x` has a colon but no user@host.
+#[test]
+fn test_cli_windows_path_is_not_mistaken_for_an_address() {
+    let dir = fixture("not-an-address");
+    let out = Command::new(EXE).arg(&*dir).output().unwrap();
+    assert!(out.status.success(), "{}", stderr_of(&out));
+}
+
+/// The path, the option and the file each failed anonymously before.
+#[test]
+fn test_cli_names_what_it_could_not_use() {
+    let dir = fixture("named-errors");
+    let missing = dir.join("no-such-folder");
+    let out = Command::new(EXE).arg(&missing).output().unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    assert!(
+        stderr_of(&out).contains(&missing.display().to_string()),
+        "the missing path must be named: {}",
+        stderr_of(&out)
+    );
+
+    let out = Command::new(EXE).arg("--nope").output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr_of(&out).contains("unknown option `--nope`"),
+        "{}",
+        stderr_of(&out)
+    );
+
+    // Rejecting unknown options would otherwise make a folder whose name
+    // begins with `-` unbundlable, so `--` ends the options.
+    let odd = dir.join("-weird");
+    std::fs::create_dir_all(&odd).unwrap();
+    std::fs::write(odd.join("a.txt"), "inside\n").unwrap();
+    // Named relatively, from its parent, so the argument itself begins `-`.
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("--")
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", stderr_of(&out));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("inside"));
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2), "without `--` it is an option");
+    assert!(
+        stderr_of(&out).contains("unknown option"),
+        "{}",
+        stderr_of(&out)
+    );
+    // The escape has to be documented, not merely implemented: without a
+    // needle, both lines could be deleted with every test still green.
+    let help = Command::new(EXE).arg("--help").output().unwrap();
+    let help = String::from_utf8(help.stdout).unwrap();
+    assert!(
+        help.contains("every later argument is a path"),
+        "--help must document the `--` escape"
+    );
+    let readme = repo_file("README.md");
+    assert!(
+        readme.contains("every later argument is a path"),
+        "the README must document the `--` escape"
+    );
+    assert!(
+        readme.contains("names it and exits `2`"),
+        "the README must say what a mistyped option does"
+    );
+
+    // `--` takes one path, not a second.
+    let out = Command::new(EXE)
+        .current_dir(&*dir)
+        .arg("--")
+        .arg("-weird")
+        .arg("-weird")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr_of(&out).contains("unexpected second path"),
+        "{}",
+        stderr_of(&out)
+    );
+
+    // Writing to a directory: "Access is denied. (os error 5)" alone did not
+    // say what mdeezl had been trying to write.
+    let out = Command::new(EXE)
+        .arg(&*dir)
+        .arg("-o")
+        .arg(&*dir)
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(1));
+    let err = stderr_of(&out);
+    assert!(err.contains("could not write"), "{err}");
+    assert!(err.contains(&dir.display().to_string()), "{err}");
 }

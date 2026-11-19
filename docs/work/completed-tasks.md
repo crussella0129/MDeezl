@@ -224,3 +224,266 @@
   test, all nine checked. fmt and clippy `-D warnings` are clean; 68 unit and
   54 end-to-end tests pass on rustc 1.98.1.
 - **Commit:** `22a4cdd75935c4fb894c33324c4bafbed05632a4`
+
+## T-001 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `src/lib.rs` (moved from `src/main.rs` with `git mv`),
+  `src/main.rs`, `tests/cli.rs`
+- **Summary:** The engine is now a library, so the desktop app can call it
+  in-process.
+  - **The thin binary.** `src/main.rs` is one `fn main` that exits with
+    `mdeezl::cli(std::env::args().skip(1))`.
+  - **The public surface.** It is `Options` (fields now `pub`), `Wrap`, `Sink`,
+    `Bundle`, `bundle` and `cli`.
+  - **`bundle`.** It returns the name, the document and the notices, and
+    prints nothing. The CLI's `run` prints each notice as `mdeezl: <notice>`,
+    then writes the sink, so stderr is unchanged.
+  - **`render_document`.** It keeps its signature, which the moved tests use,
+    and delegates to the new `render_titled`.
+  - **Imports.** `env` and `process`, used outside tests only by the old
+    `main`, carry `cfg_attr(not(test), allow(unused_imports))` until T-002.
+- **Verification:**
+  - **New tests:** `test_bundle_returns_notices_as_data` (unit, appended to
+    `mod tests`), `test_main_rs_only_delegates_to_cli`, and
+    `test_bundle_matches_cli_output`. The last checks all three wrap modes,
+    with gitignore on and off, with neither side isolated.
+  - **Results:** 69 unit and 56 end-to-end tests pass. That includes all 122
+    earlier tests, unedited.
+  - **Gates:** fmt and clippy `-D warnings` are clean.
+- **Commit:** `efca63fdd447e582a001291a5cbe0e1c306f54cb`
+
+## T-002 (sprint 3)
+
+- **Intent:** [INT-0002](../intents/INT-0002-git-and-remote-sources.md), with [INT-0006](../intents/INT-0006-desktop-gui.md) for the no-console-window clause
+- **Completed:** 2026-09-19
+- **Touched:** `src/lib.rs`, `tests/cli.rs`, `README.md`
+- **Summary:** A source beginning `https://`, `http://` or `file://` is now
+  fetched.
+  - **The clone.** It is a shallow `git clone`, hardened so it can never wait
+    on a person:
+    - prompts, askpass and credential helpers are off;
+    - `GIT_ALLOW_PROTOCOL=https:http:file` refuses ssh;
+    - a transfer that stalls once connected is cut off by
+      `http.lowSpeedLimit=1` / `http.lowSpeedTime=30`, with the
+      `GIT_HTTP_LOW_SPEED_*` overrides removed;
+    - text arrives with LF on every OS (`core.eol=lf`);
+    - LFS files stay as pointers.
+  - **Cleanup.** The clone lives in `<temp>/mdeezl-<pid>-<n>/<repo-name>`, and
+    a drop guard removes it whether the run succeeds or not.
+  - **What the user sees.** The heading is the display URL, with any
+    `user:password@` stripped. The repository name is made path-safe. A
+    failure's reason is git's first `fatal:` line.
+  - **One git entry point.** Every git spawn, gitignore's included, now goes
+    through `git_command()`, which sets `CREATE_NO_WINDOW` on Windows.
+  - **Docs.** `--help` and the README describe URL sources. The README's exit
+    codes count a failed fetch, and "Not yet" keeps only the git-ref half and
+    INT-0003.
+- **Verification:**
+  - **Unit tests, 9 new:** `test_is_url`, `test_repo_name`,
+    `test_display_url_strips_credentials`, `test_clone_command_is_hardened`,
+    `test_fetch_rejects_protocol_outside_allow_list`,
+    `test_fetch_file_url_bundles_the_clone` (exact LF bytes on Windows),
+    `test_fetch_bad_url_errs`, `test_stalled_server_fails_the_fetch` and
+    `test_git_commands_set_create_no_window`.
+  - **End-to-end tests, 5 new:** `test_cli_file_url_source_bundles_the_clone`,
+    `test_cli_unreachable_url_exits_1` (no `SECRET` in stderr),
+    `test_cli_url_without_git_exits_1`, `test_cli_help_documents_url_sources`
+    and `test_readme_documents_url_sources`. There is also the ignored
+    `test_live_github_clone`, which was run once by hand and passed in 0.99 s.
+  - **Totals:** 78 unit and 61 end-to-end tests pass, and every earlier test
+    is unedited: `git diff --numstat 24442f1 -- tests/cli.rs` reads `252 0`.
+  - **Gates:** fmt and clippy `-D warnings` are clean.
+- **Commit:** `4aac0a78d49e3bea55efe015f49eb43df144e4bc`
+
+## T-003 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `Cargo.toml`, `Cargo.lock`, `gui/Cargo.toml`, `gui/src/lib.rs`,
+  `gui/src/main.rs`, `gui/tests/app.rs`
+- **Summary:** A new workspace member, `mdeezl-gui`.
+  - **Dependencies.** Exactly `mdeezl` by path, `eframe` 0.36.2 (glow,
+    default fonts, accesskit, x11, wayland; default features off), and `rfd`
+    0.17.2 (xdg-portal only). The only dev-dependency is `egui_kittest` with
+    its `eframe` feature.
+  - **The window.** It shows the heading `MDeezl` and exactly the workflow's
+    widgets:
+    - a `Source` field, hinted "Folder path or https:// URL", with `Browse…`;
+    - `fence`/`inline`/`none` radios, with fence selected;
+    - `Respect .gitignore`, checked;
+    - an `Output folder` field, defaulting to the home folder, with `Browse…`;
+    - a `Generate` button, whose behaviour arrives in T-004.
+  - **Input.** A folder dropped anywhere on the window becomes the source.
+    `App::options()` maps the fields onto the CLI's defaults.
+  - **Launcher.** A release build is a windowed program.
+- **Verification:**
+  - **Tests.** Five egui_kittest tests drive the real `eframe::App` headlessly
+    through `Harness::new_eframe`: `test_gui_manifest_dependencies`,
+    `test_app_has_exactly_the_controls` (widget counts by AccessKit role, and
+    the placeholder), `test_app_defaults`, `test_options_follow_the_fields`
+    and `test_dropped_folder_fills_source`.
+  - **Gates.** `cargo fmt --all --check` and
+    `cargo clippy --workspace --all-targets -- -D warnings` are clean, and
+    every test passes.
+  - **Dependencies.** `cargo tree -p mdeezl` still reports only `mdeezl`.
+- **Commit:** `3b92bb1863615c0a695c4cb16d20ed1282b5e8bf`
+
+## T-004 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `gui/src/lib.rs`, `gui/tests/app.rs`
+- **Summary:** Generate now works.
+  - **Validation.** An empty source or output folder is named in the status,
+    and no job starts.
+  - **The job.** Otherwise `App::generate` returns at once, already working,
+    and runs the job on a worker thread. The job is injectable, and defaults
+    to `mdeezl::bundle`.
+  - **The write.** The worker writes `.<stem>.md.mdeezl-tmp`, then renames it
+    over `<stem>.md`. On failure only the temporary file is removed, so an
+    earlier good file survives.
+  - **The file name.** `output_stem` falls back to `bundle` for an empty name,
+    `.`, `..`, or anything with `/`, `\` or `:`.
+  - **Reporting.** The worker reports `Wrote <path> (<size>)` plus each
+    notice, then wakes the window with `request_repaint`.
+  - **`App::tick`.** Called from `eframe::App::logic`, so it runs even while
+    the window is minimised. It does four things:
+    - collects the result;
+    - treats a disconnected channel, such as a panicked job, as
+      `The job stopped unexpectedly`;
+    - shows `Fetching…` or `Bundling…`, from the source captured at Generate;
+    - requests a repaint every 100 ms while working.
+  - **Closing.** A close requested while working gets `CancelClose` and the
+    status `Closing when the current job finishes…`. `Close` follows once the
+    job ends, and its echo is not cancelled.
+  - **Disabled while working.** Generate cannot be pressed during a job.
+  - **Drop.** Dropping a `Worker`, and so the `App`, joins its thread.
+- **Verification:**
+  - **Tests.** 17 new egui_kittest tests; 22 GUI tests in all, stable over
+    three runs.
+  - **Deviations from the plan's test wording.** There are two:
+    1. The worker's wake-up is asserted in its own test,
+       `test_worker_wakes_the_window`, on a context with no pass run. egui
+       calls the repaint callback only for a request sooner than one already
+       pending, and a logic pass with input events queues an immediate
+       repaint, so it cannot be observed after one.
+    2. In `test_generate_writes_engine_bytes`, the source is typed through
+       AccessKit, but the output folder is set on the state. Its field holds
+       the home folder, and typing would append to that.
+  - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
+- **Commit:** `a5c6a1556f8f480cf77596d22db098851487de24`
+
+## T-005 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `.github/workflows/sprint-loops-ci.yml`, `tests/cli.rs`
+- **Summary:** The CI gates now cover the whole workspace, the desktop app
+  included.
+  - **Gates.** `cargo fmt --all --check` and
+    `cargo clippy --workspace --all-targets -- -D warnings`.
+    `cargo test --all -- --nocapture` already covered the workspace.
+  - **Nothing else changed.** No step or key was added or removed.
+  - **The guard test changed in the same commit.** Sprint 2's
+    `test_ci_updates_installs_and_logs_in_order` pins the gate lines, and now
+    requires the new ones.
+- **Verification:**
+  - **Mutation check.** It was re-run against the new lines: all 41 changes
+    fail their named test with the intended message. They are the 39 sprint 2
+    rows, plus two restoring the pre-workspace fmt and clippy lines, which
+    fail with `workflow must have the one-line step "run: cargo fmt --all
+    --check"` and the clippy equivalent.
+  - **Pin.** Under `channel = "1.96.0"`, the full workspace suite passes on
+    1.96.0 (78 + 61 + 22), and the three pass-mutations pass.
+  - **Line endings.** Before the first run, rows 36 and 38 were reported "NOT
+    CAUGHT". Earlier Python edits had left `README.md` and 30 Book files with
+    CRLF working copies, while the index was LF, so the script's LF patterns
+    changed nothing. The working copies were restored from the index as LF,
+    and both rows then failed as intended.
+  - **CI.** The observation on both legs is recorded in the sprint 3 test
+    report.
+- **Commit:** `2b686259f84d4004a2c4805dbf34daea7f347549`
+
+## T-006 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `gui/src/weasel.rs` (new), `gui/src/lib.rs`, `gui/tests/app.rs`
+- **Summary:** The weasel, drawn from one list of shapes in a unit box
+  `[0,1] × [0,0.6]`, with no image file and no image decoding.
+  - **The shapes.** Discs, plus "tubes": Bézier-sampled polylines whose
+    points carry a radius. The pose is a weasel in mid-bound:
+    - an arched brown back;
+    - a tapering tail with a dark stoat tip;
+    - stubby legs, the far pair a shade darker;
+    - a cream underside along the neck, and a cream chin;
+    - a round head with an ear, an eye with a highlight, and a nose.
+  - **The hero.** `weasel::paint` draws a filled circle per disc and per tube
+    point, and a line segment per tube segment. The hero is 280 points wide,
+    centred above a centred heading and tagline. Its rect is exposed as
+    `App::hero_rect()`.
+  - **The icon.** `weasel::icon(64)` rasterises the same shapes with 4×4
+    supersampling. `native_options()` sets it as the window icon.
+- **Verification:**
+  - **Tests.** Four new ones: `test_weasel_shapes_fit_the_unit_box`,
+    `test_icon_rasterises_the_weasel` (opaque share measured at 0.177),
+    `test_native_options_carry_the_icon` and
+    `test_hero_paints_weasel_shapes`. The last counts shapes inside the hero
+    rect only, so the radio buttons' circles are excluded. 26 GUI tests in all.
+  - **Visual check.** The real window was captured through eframe's own GL
+    readback (`ViewportCommand::Screenshot`) by a scratch harness outside the
+    repository. GDI screen capture returned a white client area for the glow
+    surface.
+  - **One revision.** The first capture showed the cream throat jutting out
+    in front of the neck. It was moved inside the neck's lower edge, and the
+    heading was centred. The user's verdict on the weasel is taken in the
+    Test Phase.
+  - **Gates.** fmt and clippy `-D warnings` are clean across the workspace.
+- **Commit:** `5963acea9a633e54ab4ccc81aa0faaa7528796f2`
+
+## T-007 (sprint 3)
+
+- **Intent:** [INT-0006](../intents/INT-0006-desktop-gui.md)
+- **Completed:** 2026-09-19
+- **Touched:** `README.md`, `tests/cli.rs`
+- **Summary:** The README's introduction now scopes "standard library alone"
+  to the `mdeezl` crate, the engine and command line: `cargo tree -p mdeezl`
+  reports no dependencies. It also names the desktop app's separate crate,
+  `mdeezl-gui`.
+
+  A new `## Desktop app` section covers:
+  - how to run the app (`cargo run -p mdeezl-gui --release`) and install it
+    (`cargo install --path gui`);
+  - the four controls in order: Source with Browse… and drag-and-drop,
+    Format, Output folder, and Generate;
+  - that Generate writes `<name>.md`, replacing a file of that name;
+  - that a URL source needs git;
+  - that closing during a fetch waits for it.
+- **Verification:** two new tests, `test_readme_scopes_std_only_to_the_engine`
+  and `test_readme_documents_desktop_app`, each scoped to its section. 78 unit,
+  63 end-to-end and 26 GUI tests pass. fmt and clippy are clean.
+- **Commit:** `31713946e3dafe0043ca7858c25c899499ef76f2`
+
+## T-106 (sprint 3)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-11-19
+- **Touched:** `docs/intents/INT-0005-reproducible-toolchain.md`
+- **Summary:** A backlog item sprint 2 left open, waiting on the world rather
+  than on the code: attach the first CI log whose update step reports
+  `updated`, proving that `rustup update stable` moves a lagging runner image
+  forward. Sprint 3's Test Phase was the first to run CI after a new stable
+  shipped ahead of the images.
+- **Verification:** three runs on 2026-11-19 logged
+  `updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))`
+  on **both** legs — runs 44550746892, 44554527551 and 44561690290, the last
+  being the tested head's. A fourth that day, run 44558109833, started on
+  1.100.0 already and reported `unchanged`, which showed something the item
+  had not asked for: the runner image varies between runs, and the Windows
+  image's git moved with it. The chapter records both readings, and why the
+  workflow logs the toolchain before and after the update at all.
+- **Commit:** recorded in this sprint's Loop Phase; the evidence is the CI runs
+  above, not a code change.
+

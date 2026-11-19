@@ -9,8 +9,10 @@ everything an agent needs to understand it without filesystem access:
 2. the **full text of every included file**, each introduced by a
    `--- File: <path> ---` header.
 
-It is written in Rust against the standard library alone. `cargo tree` reports
-no dependencies, and the test suite adds none.
+The `mdeezl` crate, which is the engine and the command line, is written in
+Rust against the standard library alone. `cargo tree -p mdeezl` reports no
+dependencies, and its test suite adds none. The desktop app is a separate crate
+in the same workspace, `mdeezl-gui`, with its own dependencies (egui).
 
 ## Install
 
@@ -20,14 +22,51 @@ cargo install --path .
 
 Or run it straight from the checkout with `cargo run -- <args>`.
 
+## Desktop app
+
+Prefer a window? `mdeezl-gui` is a small app over the same engine, so the file
+it writes is exactly what the command line writes.
+
+```bash
+cargo run -p mdeezl-gui --release
+```
+
+To install it instead, run `cargo install --path gui`.
+
+1. **Source.** Type a folder path or an `https://` URL, click **Browse…**, or
+   drop a folder onto the window. A URL source needs git on your PATH.
+2. **Format.** Pick `fence`, `inline` or `none`. Choose whether to
+   **Respect .gitignore**.
+3. **Output folder.** This is where the file goes; it starts as your home
+   folder. **Browse…** picks another.
+4. **Generate.** Writes `<name>.md`, named after the folder or repository,
+   replacing a file of that name. The status line shows the path and size, or
+   what went wrong. Closing the window during a fetch waits for it to finish,
+   so nothing is left in your temp folder.
+
 ## Usage
 
 ```
-mdeezl [PATH] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]... [--no-gitignore]
+mdeezl [PATH | URL] [-o FILE] [--wrap MODE] [--exclude PATTERN]... [--include PATTERN]... [--no-gitignore]
 ```
 
 `PATH` defaults to the current directory. Output goes to stdout unless `-o` is
 given.
+
+A **URL** can stand in for `PATH`. Any argument beginning `https://`,
+`http://` or `file://` is fetched rather than read from disk:
+
+```bash
+mdeezl https://github.com/octocat/Hello-World -o hello.md
+```
+
+This needs git on your PATH. mdeezl makes a shallow clone into a temporary
+folder, bundles it, and the folder is removed afterwards, whether or not the
+run succeeds. The document's title is the URL, minus any `user:password@` it
+carried. mdeezl never prompts for credentials and uses no credential helper,
+so a private repository fails instead of asking you to log in. A stalled
+transfer gives up after 30 seconds. Text files arrive with LF line endings on
+every OS, and Git LFS files arrive as their pointer text.
 
 | Flag | Meaning |
 |------|---------|
@@ -36,10 +75,15 @@ given.
 | `--exclude PATTERN` | add `PATTERN` to the ignore list (repeatable) |
 | `--include PATTERN` | keep entries matching `PATTERN` even if ignored (repeatable) |
 | `--no-gitignore` | do not apply the repository's `.gitignore` rules |
+| `--` | every later argument is a path, for a `PATH` that itself begins with `-` |
 | `-h`, `--help` | print usage |
 
-Exit codes: `0` success, `2` bad arguments, `1` the path could not be read or
-the output could not be written. A non-zero exit never leaves a partial
+An argument beginning `-` that is not a flag is a mistake, not a path: mdeezl
+names it and exits `2`. To bundle a folder whose name really does begin with
+`-`, put `--` first.
+
+Exit codes: `0` success, `2` bad arguments, `1` the path could not be read, a
+URL could not be fetched, or the output could not be written. A non-zero exit never leaves a partial
 document on stdout.
 
 ## Example
@@ -225,9 +269,10 @@ no-argument install may behave differently, so upgrade it first with
 
 ## Not yet
 
-Bundling a git branch, worktree, or a remote repository on GitHub/GitLab/Gitea/
-Codeberg, and LLM-generated comments in the tree, are both intended but out of
-scope for now. They are written up as `docs/intents/INT-0002` and `INT-0003`.
+Bundling a git branch, tag, commit or worktree of a local repository without
+checking it out, and LLM-generated comments in the tree, are both intended but
+out of scope for now. They are written up as `docs/intents/INT-0002` (its
+git-ref half) and `INT-0003`.
 
 ## License
 

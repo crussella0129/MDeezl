@@ -48,8 +48,9 @@ jobs:
           cargo clippy --version
           rustup --version
           git --version
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      # The whole workspace: the engine and CLI, and the desktop app (INT-0006).
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       # --nocapture so a platform-gated test's SKIP line is visible in the log
       # rather than silently passing.
       - run: cargo test --all -- --nocapture
