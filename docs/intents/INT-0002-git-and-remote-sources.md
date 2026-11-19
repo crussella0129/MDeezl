@@ -4,10 +4,10 @@
 - **Intent ID:** INT-0002
 - **State:** active
 - **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-002 URL sources](../sprints/s3/sprint-plans/build-plan.md#t-002-url-sources)
-- **Completion evidence:** none
-- **Code evidence:** none
-- **Test evidence:** none
-- **Documentation evidence:** none
+- **Completion evidence:** [T-002](../work/completed-tasks.md#t-002-sprint-3)
+- **Code evidence:** [src/lib.rs](../../src/lib.rs), [tests/cli.rs](../../tests/cli.rs)
+- **Test evidence:** [Sprint 3 test report](../sprints/s3/sprint-tests/test-report.md), [unit](../sprints/s3/sprint-tests/unit-tests.md), [integration](../sprints/s3/sprint-tests/integration-tests.md), [end-to-end](../sprints/s3/sprint-tests/e2e-tests.md)
+- **Documentation evidence:** [README.md](../../README.md), and `mdeezl --help`
 
 ## Intent
 
@@ -131,6 +131,25 @@ pure-`std` shape if entangled with it.
 - LFS-tracked files appear in a URL bundle as pointer text, not content.
 
 ## Transition history
+- 2026-11-19: sprint 3 delivered the **remote half** and this chapter stays
+  `active`, as its plan said it would. A source beginning `https://`, `http://`
+  or `file://` is fetched through a hardened shallow clone, recorded in the
+  document with credentials stripped, cleaned up whether it succeeds or not,
+  and never waiting on a person: prompts, askpass and credential helpers off,
+  a protocol allow-list, and a 30-second stall limit. Every failure the
+  criterion names now has an executed test — missing, unreachable, stalled,
+  disallowed protocol, git absent, and, added during the Test Phase when the
+  critique found it missing, **unauthorised**: a local socket answers 401 and
+  the fetch gives up in 0.25 s, with the real binary exiting 1 on one stderr
+  line carrying no credentials.
+  - **Criterion 2 is untouched**: reading a git ref without mutating the
+    working tree is backlog T-103, and that is why this chapter is not
+    `realized`.
+  - **Not executed this sprint:** an `insteadOf` rule rewriting an `https://`
+    URL to ssh. The allow-list that stops it is asserted at the fetch
+    boundary, but the rewrite itself cannot be staged without weakening the
+    clone's deliberate config isolation, so it still rests on the
+    planning-time measurement recorded above.
 - 2026-09-17: created as `proposed`; explicitly out of scope for sprint 0.
 - 2026-09-19: amended while `proposed`, by sprint 3 research. The desktop GUI
   of [INT-0006](INT-0006-desktop-gui.md) takes a path *or URL*, so the remote

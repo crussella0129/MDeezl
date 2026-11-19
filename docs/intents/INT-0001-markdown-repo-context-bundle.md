@@ -276,3 +276,17 @@ minus `--include`, with no second hidden mechanism layered on top.
     engine and CLI. The desktop app of
     [INT-0006](INT-0006-desktop-gui.md) lives in its own workspace crate, with
     its own dependencies. `cargo tree -p mdeezl` still reports only `mdeezl`.
+- 2026-11-19: confirmed by sprint 3's Test Phase, with no state change. Both
+  constraints the sprint was held to were measured rather than assumed:
+  - **Nothing regressed.** The engine moved from `src/main.rs` to
+    `src/lib.rs`, and the proof that its tests came along unedited is a byte
+    comparison, not a count: the 47,456-byte `#[cfg(test)] mod tests` block of
+    `24442f1:src/main.rs`, minus its closing brace, is still a byte prefix of
+    `src/lib.rs` at the sprint's tested head.
+  - **The dependency property holds as scoped.** `cargo tree -p mdeezl` prints
+    one line at that head, and the unedited
+    `test_manifest_dependencies_table_is_empty` passes.
+  - **Two OS legs earned their keep.** A change that was green on Linux was
+    red on Windows: a new source-reading assertion split on a `\n`-anchored
+    pattern that a CRLF checkout does not contain. That is the single-platform
+    blind spot this chapter keeps both legs for, caught by them.

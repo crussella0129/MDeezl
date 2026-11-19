@@ -465,3 +465,25 @@
   and `test_readme_documents_desktop_app`, each scoped to its section. 78 unit,
   63 end-to-end and 26 GUI tests pass. fmt and clippy are clean.
 - **Commit:** `31713946e3dafe0043ca7858c25c899499ef76f2`
+
+## T-106 (sprint 3)
+
+- **Intent:** [INT-0005](../intents/INT-0005-reproducible-toolchain.md)
+- **Completed:** 2026-11-19
+- **Touched:** `docs/intents/INT-0005-reproducible-toolchain.md`
+- **Summary:** A backlog item sprint 2 left open, waiting on the world rather
+  than on the code: attach the first CI log whose update step reports
+  `updated`, proving that `rustup update stable` moves a lagging runner image
+  forward. Sprint 3's Test Phase was the first to run CI after a new stable
+  shipped ahead of the images.
+- **Verification:** three runs on 2026-11-19 logged
+  `updated - rustc 1.100.0 (0ef1bc386 2026-11-09) (from rustc 1.99.1 (58cf8f9c3 2026-10-13))`
+  on **both** legs — runs 44550746892, 44554527551 and 44561690290, the last
+  being the tested head's. A fourth that day, run 44558109833, started on
+  1.100.0 already and reported `unchanged`, which showed something the item
+  had not asked for: the runner image varies between runs, and the Windows
+  image's git moved with it. The chapter records both readings, and why the
+  workflow logs the toolchain before and after the update at all.
+- **Commit:** recorded in this sprint's Loop Phase; the evidence is the CI runs
+  above, not a code change.
+

@@ -4,10 +4,10 @@
 - **Intent ID:** INT-0006
 - **State:** active
 - **Work evidence:** [Sprint 3 build plan](../sprints/s3/sprint-plans/build-plan.md), [T-003 GUI crate, window and fields](../sprints/s3/sprint-plans/build-plan.md#t-003-gui-crate-window-and-fields)
-- **Completion evidence:** none
-- **Code evidence:** none
-- **Test evidence:** none
-- **Documentation evidence:** none
+- **Completion evidence:** [T-001](../work/completed-tasks.md#t-001-sprint-3), [T-003](../work/completed-tasks.md#t-003-sprint-3), [T-004](../work/completed-tasks.md#t-004-sprint-3), [T-005](../work/completed-tasks.md#t-005-sprint-3), [T-006](../work/completed-tasks.md#t-006-sprint-3), [T-007](../work/completed-tasks.md#t-007-sprint-3)
+- **Code evidence:** [gui/src/lib.rs](../../gui/src/lib.rs), [gui/src/weasel.rs](../../gui/src/weasel.rs), [gui/src/main.rs](../../gui/src/main.rs), [src/lib.rs](../../src/lib.rs), [gui/tests/app.rs](../../gui/tests/app.rs)
+- **Test evidence:** [Sprint 3 test report](../sprints/s3/sprint-tests/test-report.md), [unit](../sprints/s3/sprint-tests/unit-tests.md), [integration](../sprints/s3/sprint-tests/integration-tests.md), [end-to-end](../sprints/s3/sprint-tests/e2e-tests.md), and the window itself: [window.png](../sprints/s3/sprint-tests/window.png)
+- **Documentation evidence:** [README.md](../../README.md), its `## Desktop app` section
 
 ## Intent
 
@@ -149,6 +149,30 @@ stack to a project that has so far had no runtime dependencies at all.
   needed on PATH for URLs, as it already is for gitignore support.
 
 ## Transition history
+- 2026-11-19: sprint 3's Test Phase closed with this chapter still `active`,
+  deliberately. Seven of the eight acceptance criteria are evidenced by
+  executed tests, CI logs on both OSes, or recorded observation, and the
+  evidence links above carry them. **The eighth is the user's to give.** The
+  criterion says whether it reads as a weasel is a human judgement, made from
+  a screenshot; the screenshot of the running window at the tested head is
+  committed beside the test report and was put in front of the user. The
+  design in it is the one they chose during T-006 — `gui/src/weasel.rs` is
+  byte-identical between `e015bf1`, the commit whose render they approved with
+  "just do this one and call it a day", and the tested head — so what awaits
+  is their reading of the running window, not another design round. One word
+  from them realizes this chapter.
+  - Two criteria carry a recorded boundary rather than a gap. "No partial
+    files" names an unauthorised URL *in the window*: that case is proved at
+    the engine and through the real binary, and what is unproved is only that
+    the window composes with them, which every other error path shows it does.
+    "Responsive while working" rests partly on a console-window count sampled
+    every 200 ms, which cannot resolve a shorter flash; the mechanism itself
+    is pinned in the source instead.
+  - The Test Phase also repaired nine defects found by driving the app rather
+    than testing it, and five adversarial critique rounds then found nine more
+    mechanisms that no test would have missed if they had been deleted. Both
+    are recorded in the sprint's
+    [end-to-end results]({S3}/e2e-tests.md) and [critique]({S3}/critique.md).
 - 2026-09-19: created as `proposed` at the sprint 3 boundary. The user asked
   for a minimal egui frontend with a weasel logo in place of the backlog items
   that were offered.
