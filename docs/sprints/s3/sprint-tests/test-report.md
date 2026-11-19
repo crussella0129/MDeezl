@@ -1,6 +1,8 @@
 # Sprint 3 Test Report
 
-- **Verdict:** pass, with two things stated rather than claimed. Seven of
+- **Verdict:** pass, with its gaps stated rather than claimed — they are
+  listed under “What this phase cannot show”, and the two that touch an
+  acceptance criterion are named here. Seven of
   [INT-0006](../../../intents/INT-0006-desktop-gui.md)'s eight acceptance
   criteria are proved by executed tests, CI logs or recorded observation. Of
   those seven, one half-case is proved a layer down rather than in the window:
@@ -13,18 +15,20 @@
   [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md)'s remote
   half is proved; its git-ref half is **not in this sprint**, so that chapter
   stays `active`.
-- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`).
+- **Tested head:** `77b0c00570c978b4d12ea2b8d40fa88816f285e2` (branch `dev`).
 - **Runner:** `cargo test --all -- --nocapture`, the project's canonical suite.
 - **CI:** [run 44558109833](https://github.com/crussella0129/MDeezl/actions/runs/44558109833)
   passed on `ubuntu-latest` (job 135679613205) and `windows-latest` (job
   135679612560). Both legs ran rustc 1.100.0, cargo 1.100.0 and clippy
   0.1.100, under the images' own rustup 1.29.3 — the update steps pass
   `--no-self-update`, so no run ever installs rustup. git was 2.56.1 on Linux
-  and 2.56.0.windows.4 on Windows.
+  and 2.56.1.windows.1 on Windows.
 - **Local host:** Windows 11, rustc 1.99.1, cargo 1.99.1, rustup 1.29.2, git
   2.56.0.windows.3.
-- **Critique:** [critique.md](critique.md). Two rounds: `block`, then
-  `proceed-with-caveats`, whose caveats were closed rather than banked.
+- **Critique:** [critique.md](critique.md). Four rounds: `block`,
+  `proceed-with-caveats`, `block`, `proceed-with-caveats`. Every round's
+  concerns were answered rather than banked; the two `block` rounds are why
+  this report says what it cannot show as plainly as what it can.
 
 ## Results
 
@@ -140,7 +144,7 @@ with an isolated empty global config by design.
   "unedited". Two legs remain. The dependency property now reads as the
   `mdeezl` crate's, which the chapter already records.
 - **INT-0005.** The guard test changed in the same commit as the gate lines it
-  pins, and the mutation table was re-run: **47 rows, 0 not caught**.
+  pins, and the mutation table was re-run: **49 rows, 0 not caught**.
 
   **This phase closes an observation sprint 2 left open.** The lag-correction
   half of INT-0005's criterion — that `rustup update stable` actually moves a
@@ -168,7 +172,7 @@ recorded here rather than folded in silently.
 | Plan text | What is true now | Why |
 |-----------|------------------|-----|
 | T-002: "**WHEN** the source argument is not a URL — including … `git@host:x/y` … — **THEN** mdeezl **SHALL** treat it as a local path, as before." | Three shapes are refused rather than read as paths: any `<scheme>://` outside the three supported ones, an ssh address such as `git@host:x/y`, and a URL with no host, which now fails with `has no host` instead of after a DNS wait. A Windows path still works: `C:\x` has a colon but no `user@host`. | Driving the CLI by hand, each produced "The filename, directory name, or volume label syntax is incorrect" — the file system’s answer to a path nobody meant to type — and `https://` spent 7.5 s in DNS first. Pinned by `test_cli_explains_a_source_it_cannot_use` and `test_cli_windows_path_is_not_mistaken_for_an_address`. |
-| T-001: "its stdout, its stderr … and its exit codes 0, 1 and 2 **SHALL** be unchanged" | Three changes under this one clause. A mistyped option (`--wrap-none`) now exits **2** with "unknown option", where it used to exit 1 as "unexpected second path". A missing source path is named: `<path>: <os error>`. A failed `-o` write is named too: `could not write <path>: <os error>`. | Each old message sent the reader somewhere other than the mistake: a path they never typed, and two OS errors with no subject. The exit-code change cost a `-`-leading folder its only spelling, so `--` was added, documented in `--help` and the README, and pinned by `test_cli_names_what_it_could_not_use`. |
+| T-001: "its stdout, its stderr … and its exit codes 0, 1 and 2 **SHALL** be unchanged" | Three changes under this one clause. A mistyped option is now named: `mdeezl --wrap-none` exits **2** with "unknown option", where the old binary made it the path and exited **1** with "The system cannot find the file specified. (os error 2)" — measured by building `24442f1` and running it. Given after a path, `mdeezl . --wrap-none`, it exited 2 as "unexpected second path" and still exits 2, with the better message. A missing source path is named: `<path>: <os error>`. A failed `-o` write is named too: `could not write <path>: <os error>`. | Each old message sent the reader somewhere other than the mistake: a path they never typed, and two OS errors with no subject. The exit-code change cost a `-`-leading folder its only spelling, so `--` was added, documented in `--help` and the README, and pinned by `test_cli_names_what_it_could_not_use`. |
 | T-004: "write the document to a temporary sibling, `<output>/.<name>.md.mdeezl-tmp`" | The name carries the process id: `.<name>.md.<pid>.mdeezl-tmp`. | Two windows generating the same source into one folder shared that file and could delete each other's work mid-write. `test_temp_name_carries_the_pid` and `test_generate_unwritable_output_writes_nothing` pin it. |
 | T-004's status messages (`Choose a folder or URL`, `Choose an output folder`) | A third: `Not a folder: <path>`, shown before any job starts. | A mistyped output folder was otherwise only reported after the whole bundle had been built, as a write failure. |
 | The test plan's `test_generate_unwritable_output_writes_nothing`: "the output path is an existing *file*" | That case is now `test_generate_rejects_an_output_that_is_not_a_folder`; the original name drives a genuine write failure inside a valid folder. | The folder check above made the old arrangement stop before any write, so the test no longer reached the path it was traced to. |
@@ -177,12 +181,12 @@ recorded here rather than folded in silently.
 No CI step was added, so T-005's "any fix that adds a step is a plan
 amendment" was not triggered — and that is now asserted rather than assumed:
 the guard pins the job's step list exactly, every key of every step, and that
-there is exactly one job (mutation rows 42–47).
+there is exactly one job (mutation rows 42–49).
 
 ## Manual checks
 
-Run against `target/release/mdeezl-gui.exe` built from `c92ab73`, two commits
-below the tested head. Everything changed since is test or documentation text:
+Run against `target/release/mdeezl-gui.exe` built from `c92ab73`, four
+commits below the tested head. Everything changed since is test or documentation text:
 `gui/src/lib.rs` is untouched, `gui/Cargo.toml` and `Cargo.lock` are untouched,
 and the shipped half of `src/lib.rs` — everything above `#[cfg(test)] mod
 tests` — is byte-identical, which `diff` on the two blobs confirms. The

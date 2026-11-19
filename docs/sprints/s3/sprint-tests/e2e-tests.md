@@ -3,7 +3,7 @@
 - **Status:** possible. Everything the test plan promised is implemented, and
   the parts a headless runner cannot reach were driven by hand against the
   release window.
-- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`)
+- **Tested head:** `77b0c00570c978b4d12ea2b8d40fa88816f285e2` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Local result:** **67 passed, 0 failed, 1 ignored** in `tests/cli.rs`, and
   **31 passed, 0 failed** in `gui/tests/app.rs`. The ignored one is the live
@@ -183,7 +183,7 @@ Automation drivers that typed into the release window.
 | `mdeezl https://` | 7.5 s in DNS, then a failure | fails in 77 ms with `has no host` |
 | a source path that is not there | the OS error, without the path in it | the path is named |
 | `-o` pointed at a directory | `Access is denied. (os error 5)` alone | `could not write <path>: …` |
-| `--wrap-none` mistyped | taken as a second path: `unexpected second path` | the unknown option is named, exit 2 |
+| `--wrap-none` mistyped | alone, it became the path: exit 1 and "The system cannot find the file specified. (os error 2)". After a path, exit 2 as "unexpected second path" — a path the reader never typed. | the unknown option is named, exit 2 either way |
 | a path pasted with surrounding spaces | the filename-syntax error | both fields are trimmed |
 | two windows writing one output folder | a shared temp filename, so each could delete the other's file mid-write | the temp name carries the pid |
 

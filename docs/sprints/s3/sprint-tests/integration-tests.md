@@ -3,13 +3,13 @@
 - **Intents:** [INT-0006](../../../intents/INT-0006-desktop-gui.md),
   [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md),
   [INT-0005](../../../intents/INT-0005-reproducible-toolchain.md) (its guard)
-- **Tested head:** `29ff2703f83ee48d2008c0bad0486c5859f935ab` (branch `dev`)
+- **Tested head:** `77b0c00570c978b4d12ea2b8d40fa88816f285e2` (branch `dev`)
 - **Result, by part:**
   - **Engine ↔ CLI:** passed.
   - **GUI ↔ engine:** passed.
   - **CI observation, both legs:** passed. Both compiled `mdeezl-gui` and ran
     its tests, and neither installed a system package.
-  - **Gate mutation check:** passed. All 47 changes fail their named test.
+  - **Gate mutation check:** passed. All 49 changes fail their named test.
 
 The first two are the composition this sprint is about: the GUI and the CLI
 must produce the same bytes, and they do because they call one function.
@@ -54,7 +54,7 @@ a push to `dev`, which concluded **success on both legs**: job 135679613205 on
 | pre-update `rustc +stable --version` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` | `rustc 1.100.0 (0ef1bc386 2026-11-09)` |
 | the update step's own report | `stable-x86_64-unknown-linux-gnu unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` | `stable-x86_64-pc-windows-msvc unchanged - rustc 1.100.0 (0ef1bc386 2026-11-09)` |
 | post-install toolchain | `rustc 1.100.0`, `cargo 1.100.0`, `clippy 0.1.100`; rustup is the image's own 1.29.3, because the update step passes `--no-self-update` | the same |
-| git | `git version 2.56.1` | `git version 2.56.0.windows.4` |
+| git | `git version 2.56.1` | `git version 2.56.1.windows.1` |
 | the GUI crate is compiled | `Running unittests src/lib.rs (…/mdeezl_gui-…)` | `Running unittests src\lib.rs (…\mdeezl_gui-….exe)` |
 | its tests run | `31 passed` | `31 passed` |
 | engine unit tests | `79 passed` | `79 passed` |
@@ -107,11 +107,11 @@ keeps two legs for.
 - **What was mutated.** The tested head's `rust-toolchain.toml`, workflow and
   README, run against its tests.
 - **What each row shows.** Every change failed at its intended assertion, and
-  no row failed to compile. **47 rows, 0 not caught.**
+  no row failed to compile. **49 rows, 0 not caught.**
 
 Rows 1–39 are sprint 2's table, re-run here against the new workspace gate
 lines. Rows 40 and 41 restore the pre-workspace `fmt` and `clippy` lines, which
-the test plan requires to fail. **Rows 42–47 are new, from the three critique
+the test plan requires to fail. **Rows 42–49 are new, from the four critique
 rounds**, and every one of them is an *addition* rather than a change — the
 shape nothing caught before, because each earlier assertion says some step
 must be *present*:
@@ -128,8 +128,16 @@ must be *present*:
   the gate running at all.
 - **47** adds a workflow-level `permissions:` key.
 
-Rows 45–47 are the "and no key" half of T-005's clause, which until round 3
-was asserted only inside the job's `steps:` block.
+- **48** writes that same `container:` *after* the steps. YAML does not care
+  about key order, and rows 42–47's checks all stopped at `steps:`, so this
+  one slipped through them.
+- **49** adds a second workflow file with its own job, which the guard could
+  not see at all because it reads one file.
+
+Rows 45–49 are the "and no key" half of T-005's clause. Until round 3 it was
+asserted only inside the job's `steps:` block, and until round 4 only before
+`steps:` — each round moved the boundary out to where the next hiding place
+was.
 
 The step-list comparison is made last, where a removed or disabled step still
 fails at its own assertion first and the message names which one.
@@ -177,12 +185,14 @@ fails at its own assertion first and the message names which one.
 | 39 | legacy `rust-toolchain` file (`1.96.0`) added beside `rust-toolchain.toml` | toolchain | `no legacy rust-toolchain file may outrank rust-toolchain.toml` |
 | 40 | `- run: cargo fmt --check`, the pre-workspace gate line | workflow | `workflow must have the one-line step "run: cargo fmt --all --check"` |
 | 41 | `- run: cargo clippy --all-targets -- -D warnings`, the pre-workspace gate line | workflow | `workflow must have the one-line step "run: cargo clippy --workspace --all-targets -- -D warnings"` |
-| 42 | a `sudo apt-get install -y libgtk-3-dev` step added before the gates | workflow | `the job's steps, in order, with no other step and no other key` (the added step is in the left list, not the right) |
-| 43 | a `with: fetch-depth: 0` key added to the checkout step | workflow | `the job's steps, in order, with no other step and no other key` (the added key is in the left list, not the right) |
-| 44 | a second job that installs a package | workflow | `exactly one job, which is the one above`, left `["  rust:", "  install:"]` |
-| 45 | a job-level `container:` with the packages baked in | workflow | `the job's own keys, before its steps, and no others` |
-| 46 | `dev` dropped from the branches CI runs on | workflow | `when CI runs, and on which branches`, left `["push:", "branches: [main]", ...]` |
+| 42 | a `sudo apt-get install -y libgtk-3-dev` step added before the gates | workflow | `the job's steps, in order, with no other step and no other key` |
+| 43 | a `with: fetch-depth: 0` key added to the checkout step | workflow | `the job's steps, in order, with no other step and no other key` |
+| 44 | a second job that installs a package | workflow | `exactly one job, which is the one above` |
+| 45 | a job-level `container:` with the packages baked in | workflow | `the job's own keys, wherever they sit, and no others` |
+| 46 | `dev` dropped from the branches CI runs on | workflow | `when CI runs, and on which branches` |
 | 47 | a workflow-level `permissions:` key added | workflow | `the workflow's own keys, and no others` |
+| 48 | a job-level `container:` written *after* the steps, where key order hides it | workflow | `the job's own keys, wherever they sit, and no others` |
+| 49 | a second workflow file holding its own job | workflow | `one workflow file, which is the one asserted above` |
 
 "toolchain" is `test_toolchain_file_declares_channel_and_components`,
 "workflow" is `test_ci_updates_installs_and_logs_in_order`, and "README" is

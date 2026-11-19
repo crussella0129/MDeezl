@@ -190,3 +190,24 @@ and a good deal wrong with the writing about it. That is what a report is for,
 and it is why the verdict was `block` rather than `proceed-with-caveats` —
 a reader following those claims would have been misled about which binary was
 driven, which clause was departed from, and what CI had actually proved.
+
+## Round 4 — 2026-11-19
+
+Verdict: **proceed-with-caveats**, on six concerns (C-301 to C-306). It
+confirmed four of round 3's seven fixes outright, found two partly done, and
+caught one new defect in the code. All six were taken.
+
+| Concern | What it found | Response |
+|---------|---------------|----------|
+| C-301 | The "no key" guard still had a blind spot: YAML does not care about key order, so a job-level `container:` written *after* the steps satisfied every assertion — the exact attack row 45 exists for. The guard also read one workflow file. | **accepted.** It compares the job's keys wherever they sit, checks the matrix separately, and asserts the workflows directory holds one file. Mutation rows 48 and 49. |
+| C-302 | `unit-tests.md` said the tested head's CI run installed 1.100.0; that run's own step reads `unchanged`. True of the head before it, not this one. | **accepted.** The file now says the images already carried it and points at the two runs that did install it. |
+| C-303 | The Windows git version was quoted as 2.56.0.windows.4 in a table whose other rows come from the tested head's run, where it is 2.56.1.windows.1 — the same image refresh that made the update step read `unchanged`. | **accepted.** Corrected in both records. |
+| C-304 | "two commits below the tested head" is four — and that sentence was written by the round-3 fix to C-202, so a correction arrived with a new error in it. | **accepted.** Four. |
+| C-305 | The deviation row gave a before-state the old code could not produce: `mdeezl --wrap-none` never exited 1 as "unexpected second path". | **accepted**, and measured rather than reasoned: `24442f1` was built in a scratch worktree and run. Alone, the old binary made `--wrap-none` the path and exited **1** with "The system cannot find the file specified. (os error 2)"; after a path it exited 2 as "unexpected second path". Both records now say that. |
+| C-306 | The report's header said two critique rounds where its own body said three, and the verdict line undercounted the gaps the body lists. | **accepted.** The header names all four rounds and their verdicts. |
+
+Rounds 3 and 4 between them show the shape of this phase's risk: the code was
+sound and the writing about it was not. Five of round 3's seven findings and
+five of round 4's six were records claiming something a reader could check and
+find false — a wrong binary, a wrong commit distance, a wrong version, a
+before-state the code could not emit. Each is now either corrected or measured.
