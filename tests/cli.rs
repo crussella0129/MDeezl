@@ -1484,17 +1484,69 @@ fn test_ci_updates_installs_and_logs_in_order() {
         ],
         "the job's steps, in order, with no other step and no other key"
     );
-    // `workflow_steps` reads one job's steps, so a second job -- a package
-    // installer, say -- would be invisible to everything above it.
-    let jobs: Vec<&str> = wf
-        .split_once("\njobs:\n")
-        .expect("a jobs: block")
-        .1
+    // Everything the step list cannot see. A job-level `container:` or
+    // `services:`, a workflow-level `defaults:` or `permissions:`, or a
+    // narrowed `on:`, all change what CI does without touching a step --
+    // and a `container:` is exactly how the "no package install" promise
+    // could be kept in the log while the packages came baked in.
+    let lines: Vec<&str> = wf
         .lines()
         .filter(|l| !l.trim().is_empty() && !l.trim_start().starts_with('#'))
+        .collect();
+    let top: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|l| !l.starts_with(' '))
+        .collect();
+    assert_eq!(
+        top,
+        ["name: sprint-loops-ci", "on:", "jobs:"],
+        "the workflow's own keys, and no others"
+    );
+    let on_block: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "on:")
+        .skip(1)
+        .take_while(|l| l.starts_with(' '))
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        on_block,
+        [
+            "push:",
+            "branches: [main, dev]",
+            "pull_request:",
+            "branches: [main, dev]",
+        ],
+        "when CI runs, and on which branches"
+    );
+    let jobs: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "jobs:")
         .filter(|l| l.starts_with("  ") && !l.starts_with("   "))
         .collect();
     assert_eq!(jobs, ["  rust:"], "exactly one job, which is the one above");
+    let job_keys: Vec<&str> = lines
+        .iter()
+        .copied()
+        .skip_while(|l| *l != "  rust:")
+        .skip(1)
+        .take_while(|l| l.trim() != "steps:")
+        .map(str::trim)
+        .collect();
+    assert_eq!(
+        job_keys,
+        [
+            "strategy:",
+            "fail-fast: false",
+            "matrix:",
+            "os: [ubuntu-latest, windows-latest]",
+            "runs-on: ${{ matrix.os }}",
+        ],
+        "the job's own keys, before its steps, and no others"
+    );
 }
 
 /// T-002. The README's Toolchain section states each required item, one
@@ -1688,6 +1740,55 @@ fn test_cli_unreachable_url_exits_1() {
         "{err}"
     );
     assert!(!err.contains("SECRET"), "{err}");
+    assert!(is_empty_dir(&temp));
+}
+
+/// T-002. A repository that refuses an anonymous client, through the real
+/// binary: INT-0002's criterion is written in command-line terms, so the
+/// engine-level `test_unauthorised_repository_fails_without_prompting` is not
+/// enough on its own. A local socket answers 401 with a Basic challenge, as a
+/// private repository does, and mdeezl must report it rather than wait for a
+/// password that nobody can type.
+#[test]
+fn test_cli_unauthorised_url_exits_1() {
+    require_git!("test_cli_unauthorised_url_exits_1");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        for conn in listener.incoming().flatten() {
+            let mut conn = conn;
+            let _ = conn.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+            let mut buf = [0u8; 1024];
+            let _ = std::io::Read::read(&mut conn, &mut buf);
+            let _ = std::io::Write::write_all(
+                &mut conn,
+                b"HTTP/1.1 401 Unauthorized\r\n\
+                  WWW-Authenticate: Basic realm=\"mdeezl-test\"\r\n\
+                  Content-Length: 0\r\n\r\n",
+            );
+        }
+    });
+    let temp = tmp_dir("url-unauthorised");
+    let started = std::time::Instant::now();
+    let out = run_with_temp(
+        &temp,
+        &[&format!("http://user:SECRET@127.0.0.1:{port}/private.git")],
+    );
+    assert_eq!(out.status.code(), Some(1));
+    assert!(out.stdout.is_empty(), "no partial document on stdout");
+    let err = stderr_of(&out);
+    assert_eq!(err.lines().count(), 1, "exactly one diagnostic: {err}");
+    assert!(
+        err.starts_with(&format!(
+            "mdeezl: could not fetch http://127.0.0.1:{port}/private.git: "
+        )),
+        "{err}"
+    );
+    assert!(!err.contains("SECRET"), "{err}");
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(20),
+        "it must refuse promptly, not wait on a person"
+    );
     assert!(is_empty_dir(&temp));
 }
 
