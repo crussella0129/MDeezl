@@ -186,12 +186,12 @@ there is exactly one job (mutation rows 42–49).
 
 ## Manual checks
 
-Run against `target/release/mdeezl-gui.exe` built from `c92ab73`, four
-commits below the tested head. Everything changed since is test or documentation text:
-`gui/src/lib.rs` is untouched, `gui/Cargo.toml` and `Cargo.lock` are untouched,
-and the shipped half of `src/lib.rs` — everything above `#[cfg(test)] mod
-tests` — is byte-identical, which `diff` on the two blobs confirms. The
-binary these checks drove is the binary this head builds. They were driven
+Run against `target/release/mdeezl-gui.exe` built from `c92ab73`. Nothing that ships has changed since: `gui/src/lib.rs`,
+`gui/Cargo.toml`, `Cargo.toml` and `Cargo.lock` are untouched between that
+commit and the tested head, and the shipped half of `src/lib.rs` — the
+35,733 bytes above `#[cfg(test)] mod tests` — has the same SHA-256 at both.
+The sole source change is one hunk inside the test module. The binary these
+checks drove is the binary this head builds. They were driven
 entirely through the app's own window — UI Automation for focus, buttons, the
 native dialog and the status line, and posted key messages for typing — so
 nothing global was injected and no window was pulled to the foreground.

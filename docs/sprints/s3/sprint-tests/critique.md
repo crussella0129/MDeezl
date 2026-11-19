@@ -211,3 +211,36 @@ sound and the writing about it was not. Five of round 3's seven findings and
 five of round 4's six were records claiming something a reader could check and
 find false — a wrong binary, a wrong commit distance, a wrong version, a
 before-state the code could not emit. Each is now either corrected or measured.
+
+### Round 4 postscript
+
+Rows C-302 and C-303 above describe corrections that a later commit, `fd21f3c`,
+re-derived. Round 4 read the head `29ff270`, whose CI run does report
+`unchanged - rustc 1.100.0` and `git version 2.56.1.windows.1`; the head then
+advanced to `77b0c00`, whose run reports `updated - rustc 1.100.0 … (from
+rustc 1.99.1 …)` and `git version 2.56.0.windows.4`. Both readings are real.
+What they show is that the runner image varies between runs, which is why the
+workflow logs the toolchain before and after the update at all — so the
+records now carry all four runs rather than an explanation of one.
+
+## Round 5 — 2026-11-19
+
+Verdict: **proceed-with-caveats**, and asked directly whether the phase can
+close, it answered: *"Yes."* It re-derived the load-bearing facts rather than
+taking the records' word — the CI counts and SKIP lines on both legs, zero
+package-install matches, the 47,456-byte byte-prefix check, `tests/cli.rs` at
+609 insertions and 2 deletions, and the four-run toolchain table — and found
+them exactly as recorded. It confirmed five of round 4's six fixes and found
+the sixth (a commit distance) stale again.
+
+Its two concerns were bookkeeping in the audit trail rather than proof:
+
+| Concern | What it found | Response |
+|---------|---------------|----------|
+| C-401 | This file's round-4 rows now contradicted the records, because `fd21f3c` corrected them without touching the critique. | **accepted.** The postscript above says what changed and why both readings are real. |
+| C-402 | "four commits below the tested head" was six, and "the two critique rounds" was three — the third round running in which that one sentence carried a stale count. | **accepted**, by removing the counts rather than correcting them again. Both records now state the provenance as facts that cannot go stale: `gui/src/lib.rs`, `gui/Cargo.toml`, `Cargo.toml` and `Cargo.lock` untouched, and the shipped 35,733 bytes of `src/lib.rs` carrying the same SHA-256 at both commits, with the sole source change inside the test module. Verified here, not quoted. |
+
+No sixth round was run. Round 5's verdict is accepted, its two findings are
+closed in the way it suggested, and neither touches an assertion, a test
+result or a CI reading — the evidence a sixth round would re-examine is
+unchanged. That reasoning is recorded here rather than left implicit.

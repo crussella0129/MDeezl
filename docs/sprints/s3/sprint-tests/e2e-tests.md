@@ -111,11 +111,11 @@ needs a working app injects a gated job with a test-owned output folder.
 
 A native dialog, a real network fetch and a real window close cannot be driven
 by the headless harness. These were run against
-`target/release/mdeezl-gui.exe` built from `c92ab73`. Everything the two
-critique rounds changed afterwards is test or documentation text: between
-that commit and the tested head, `gui/src/lib.rs` is untouched and the shipped
-half of `src/lib.rs` -- everything above `#[cfg(test)] mod tests` -- is
-byte-identical, which `diff` on the two blobs confirms. The binary these
+`target/release/mdeezl-gui.exe` built from `c92ab73`. Nothing that ships has changed since: `gui/src/lib.rs`,
+`gui/Cargo.toml`, `Cargo.toml` and `Cargo.lock` are untouched between that
+commit and the tested head, and the shipped half of `src/lib.rs` — the
+35,733 bytes above `#[cfg(test)] mod tests` — has the same SHA-256 at both.
+The sole source change is one hunk inside the test module. The binary these
 checks drove is the binary this head builds.
 
 **How they were driven.** Everything was addressed to the app's own window:
