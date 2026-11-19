@@ -143,3 +143,26 @@ Two things the fixes themselves turned up, both recorded in the results:
 - the first CI run after these fixes was green on Linux and red on Windows:
   the new source check split on `"\n#[cfg(test)]\nmod tests {"`, which a CRLF
   checkout does not contain.
+
+## Round 2 — 2026-11-19
+
+Verdict: **proceed-with-caveats**. The round verified every round-1 fix
+against the code: ten were found genuinely fixed, four partly — in each of
+those four the *test* was fixed and a *record* still overclaimed. Eight new
+concerns followed, numbered C-101 to C-108. They are summarised here with the
+response; the fixes are in commit `cb11527`.
+
+| Concern | What it found | Response |
+|---------|---------------|----------|
+| C-101 | `test-report.md` was empty, and three records pointed at it in the present tense for deviations, the `cargo tree` output and the user's verdict. | **accepted.** The report is written, and carries all of them. |
+| C-102 | `unit-tests.md` still said the CI legs ran 1.98.1, contradicting its own header and the logs — and undercutting the one new piece of toolchain evidence this sprint produced. | **accepted.** Corrected to 1.100.0. |
+| C-103 | The e2e record claimed every GUI test runs through `Harness::new_eframe`; three drive a bare `egui::Context`. The locked plan had named one exception; this phase added two more and the record dropped the caveat. | **accepted.** The record now names all three, says why each needs a bare context, and names what actually pins the `logic → tick` wiring. |
+| C-104 | `--` was documented in `HELP` but asserted nowhere: both lines could be deleted with every test green — the same vacuity class as C-006. The README documented neither `--` nor the new exit 2. | **accepted.** The README documents both, and `test_cli_names_what_it_could_not_use` needles the help text and the README. |
+| C-105 | The 401 test's needle list included a bare `"401"`, which an ephemeral port such as 54017 satisfies on its own. | **accepted.** The URL is stripped before the search, and the bare needle is replaced by `error: 401` / `HTTP 401`. |
+| C-106 | `test_dropping_app_waits_for_worker` left a 50 ms margin on a wall-clock bound, so a scheduler stall could fail a correct build. | **accepted.** It compares against the job's own finish instant: if the job was already over when the drop began, the arrangement proved nothing and the test says so. The margin is the job's whole 300 ms. |
+| C-107 | INT-0006 names an unauthorised URL **in the window**; the new coverage is engine-level, and no record said so. | **defer-with-rationale**, now stated in [e2e-tests.md](e2e-tests.md): the window's half rides on the shared engine path, and what is unproved is only that the two compose. |
+| C-108 | The new step guard compared each step's first line only, so an added `with:` or `env:` passed; and it reads one job, so a second job was invisible. | **accepted.** It compares every line of every step and asserts there is exactly one job. Mutation rows 43 and 44 cover both; the table is now 44 rows, 0 not caught. |
+
+The four "partly fixed" verdicts are all answered by the same two things: the
+report now exists, and the T-004 temporary-name deviation is recorded in its
+deviation table alongside the other five.

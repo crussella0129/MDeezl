@@ -3,13 +3,13 @@
 - **Intents:** [INT-0006](../../../intents/INT-0006-desktop-gui.md),
   [INT-0002](../../../intents/INT-0002-git-and-remote-sources.md),
   [INT-0005](../../../intents/INT-0005-reproducible-toolchain.md) (its guard)
-- **Tested head:** `c92ab7327c9659a3cdbf3cb5c85ac4803bcaafcd` (branch `dev`)
+- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`)
 - **Result, by part:**
   - **Engine ↔ CLI:** passed.
   - **GUI ↔ engine:** passed.
   - **CI observation, both legs:** passed. Both compiled `mdeezl-gui` and ran
     its tests, and neither installed a system package.
-  - **Gate mutation check:** passed. All 42 changes fail their named test.
+  - **Gate mutation check:** passed. All 44 changes fail their named test.
 
 The first two are the composition this sprint is about: the GUI and the CLI
 must produce the same bytes, and they do because they call one function.
@@ -45,9 +45,11 @@ shared function, by construction rather than by comparison of two renderers.
 ## CI observation
 
 The tested head's run is
-[44550746892](https://github.com/crussella0129/MDeezl/actions/runs/44550746892),
-a push to `dev`, which concluded **success on both legs**: job 135653486587 on
-`ubuntu-latest` and job 135653487340 on `windows-latest`.
+[44554527551](https://github.com/crussella0129/MDeezl/actions/runs/44554527551),
+a push to `dev`, which concluded **success on both legs**: job 135666884830 on
+`ubuntu-latest` and job 135666884423 on `windows-latest`. The previous head's
+run, [44550746892](https://github.com/crussella0129/MDeezl/actions/runs/44550746892),
+logged the same lines and the same counts.
 
 | Log line | `ubuntu-latest` | `windows-latest` |
 |----------|-----------------|------------------|
@@ -70,6 +72,10 @@ had reported `unchanged`, and the chapter asked for the first CI log reading
 the images carried 1.99.1, the update step moved them to 1.100.0, and the
 gates then ran on 1.100.0. The suite also passes locally on 1.99.1, so the
 same head is green on two different stables.
+
+Both CI runs on this sprint's last two heads show it, so the behaviour is not
+a one-off reading: the runner images were still on 1.99.1 on 2026-11-19, and
+each run moved its own image forward before the gates.
 
 The absent package install is the measurable part of T-005's claim that the
 Linux windowing, GL and D-Bus libraries these features reach are loaded at run
@@ -96,15 +102,25 @@ keeps two legs for.
 - **What was mutated.** The tested head's `rust-toolchain.toml`, workflow and
   README, run against its tests.
 - **What each row shows.** Every change failed at its intended assertion, and
-  no row failed to compile. **42 rows, 0 not caught.**
+  no row failed to compile. **44 rows, 0 not caught.**
 
 Rows 1–39 are sprint 2's table, re-run here against the new workspace gate
 lines. Rows 40 and 41 restore the pre-workspace `fmt` and `clippy` lines, which
-the test plan requires to fail. **Row 42 is new after the critique**: it adds a
-step rather than changing one. Nothing caught that before — every other
-assertion says a step must be *present* — so the guard now pins the job's step
-list exactly, in order, and that assertion is made last, where a removed or
-disabled step still fails at its own assertion first.
+the test plan requires to fail. **Rows 42–44 are new, from the two critique
+rounds**, and all three are additions rather than changes — the shape nothing
+caught before, because every other assertion says a step must be *present*:
+
+- **42** adds a step. The guard now compares the job's step list exactly, in
+  order.
+- **43** adds a `with:` key to an existing step. The comparison covers every
+  line of every step, not just the first, which is the "and no key" half of
+  T-005's clause.
+- **44** adds a whole second job. `workflow_steps` reads one job's steps, so
+  nothing above it could see that; the guard now asserts there is exactly one
+  job.
+
+The step-list comparison is made last, where a removed or disabled step still
+fails at its own assertion first and the message names which one.
 
 | # | Change | Test | Assertion message |
 |---|--------|------|-------------------|
@@ -149,7 +165,9 @@ disabled step still fails at its own assertion first.
 | 39 | legacy `rust-toolchain` file (`1.96.0`) added beside `rust-toolchain.toml` | toolchain | `no legacy rust-toolchain file may outrank rust-toolchain.toml` |
 | 40 | `- run: cargo fmt --check`, the pre-workspace gate line | workflow | `workflow must have the one-line step "run: cargo fmt --all --check"` |
 | 41 | `- run: cargo clippy --all-targets -- -D warnings`, the pre-workspace gate line | workflow | `workflow must have the one-line step "run: cargo clippy --workspace --all-targets -- -D warnings"` |
-| 42 | a `sudo apt-get install -y libgtk-3-dev` step added before the gates | workflow | `the job's steps, in order, and no others` (the added step appears in the left list and not the right) |
+| 42 | a `sudo apt-get install -y libgtk-3-dev` step added before the gates | workflow | `the job's steps, in order, with no other step and no other key` (the added step is in the left list, not the right) |
+| 43 | a `with: fetch-depth: 0` key added to the checkout step | workflow | `the job's steps, in order, with no other step and no other key` (the added key is in the left list, not the right) |
+| 44 | a second job that installs a package | workflow | `exactly one job, which is the one above`, with left `["  rust:", "  install:"]` |
 
 "toolchain" is `test_toolchain_file_declares_channel_and_components`,
 "workflow" is `test_ci_updates_installs_and_logs_in_order`, and "README" is

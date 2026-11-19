@@ -1,6 +1,6 @@
 # Sprint 3 Unit Test Results
 
-- **Tested head:** `c92ab7327c9659a3cdbf3cb5c85ac4803bcaafcd` (branch `dev`)
+- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`, the project's canonical suite.
 - **Host:** Windows 11, `rustc 1.99.1` / `cargo 1.99.1`, `rustup 1.29.2`,
   `git 2.56.0.windows.3`. CI ran the same head on `rustc 1.100.0`, which its
@@ -116,6 +116,7 @@ nothing turn red:
 The 79 engine tests are the regression bar for
 [INT-0001](../../../intents/INT-0001-markdown-repo-context-bundle.md) and
 [INT-0004](../../../intents/INT-0004-gitignore-aware-exclusion.md). They
-passed locally on 1.99.1 at the tested head, and on both CI legs on 1.98.1.
+passed locally on 1.99.1 at the tested head, and on both CI legs on 1.100.0,
+which CI's own update step installed during the run.
 The verbatim check above is what proves the 68 inherited ones are unedited,
 rather than merely still green.

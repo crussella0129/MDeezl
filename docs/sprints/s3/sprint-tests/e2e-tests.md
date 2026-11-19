@@ -3,7 +3,7 @@
 - **Status:** possible. Everything the test plan promised is implemented, and
   the parts a headless runner cannot reach were driven by hand against the
   release window.
-- **Tested head:** `c92ab7327c9659a3cdbf3cb5c85ac4803bcaafcd` (branch `dev`)
+- **Tested head:** `cb11527c73cba51b630c32bafe5912c1d378bbfe` (branch `dev`)
 - **Runner:** `cargo test --all -- --nocapture`
 - **Local result:** **66 passed, 0 failed, 1 ignored** in `tests/cli.rs`, and
   **31 passed, 0 failed** in `gui/tests/app.rs`. The ignored one is the live
@@ -48,11 +48,23 @@ leg printed one, this sprint's own: `SKIP test_git_commands_set_create_no_window
 
 ## The window, driven headlessly
 
-Every test below holds the real `App` through `Harness::new_eframe`, which
-calls the real `eframe::App::logic` and then `ui`, exactly as eframe does — so
-a `tick` that was not wired into `logic` would fail them. They wait with the
-`step()` polling loop, never `run()`, and any test that needs a working app
-injects a gated job with a test-owned output folder.
+Most tests below hold the real `App` through `Harness::new_eframe`, which
+calls the real `eframe::App::logic` and then `ui`, exactly as eframe does.
+That is what proves the `logic → tick` wiring: `wait_idle` polls until the app
+stops working, so a `tick` that was not wired into `logic` would hang every
+harness test that waits for a result — `test_generate_writes_engine_bytes`
+first among them.
+
+**Three are deliberately not harness tests**:
+`test_close_deferral_runs_in_logic_alone`, `test_generate_requests_a_repaint`
+and `test_worker_wakes_the_window` drive a bare `egui::Context`, because each
+observes something eframe's own pass would mask — a logic pass with no `ui`,
+a request made before any pass, and a wake-up with no pass at all. The locked
+test plan named the first as the one exception; this phase added the other
+two, for the repairs described below.
+
+Tests wait with the `step()` polling loop, never `run()`, and any test that
+needs a working app injects a gated job with a test-owned output folder.
 
 | Test | EARS clause verified |
 |------|----------------------|
@@ -83,7 +95,12 @@ injects a gated job with a test-owned output folder.
 
 A native dialog, a real network fetch and a real window close cannot be driven
 by the headless harness. These were run against
-`target/release/mdeezl-gui.exe` built from the tested head.
+`target/release/mdeezl-gui.exe` built from `c92ab73`. Everything the two
+critique rounds changed afterwards is test or documentation text: between
+that commit and the tested head, `gui/src/lib.rs` is untouched and the shipped
+half of `src/lib.rs` -- everything above `#[cfg(test)] mod tests` -- is
+byte-identical, which `diff` on the two blobs confirms. The binary these
+checks drove is the binary this head builds.
 
 **How they were driven.** Everything was addressed to the app's own window:
 UI Automation for focus, buttons, the dialog and reading the status, and
@@ -177,6 +194,19 @@ source (the window answered 10 of 10 probes while it worked), resize to
 200×150 and to 1600×1000, `Browse…` dismissed with ESC, an output file locked
 open by another process, five rapid `Generate` clicks, and the close during a
 real clone that is now the last manual check above.
+
+## What is covered only through the shared engine
+
+[INT-0006](../../../intents/INT-0006-desktop-gui.md)'s "no partial files"
+criterion names "an unreachable **or unauthorised** URL" reported *in the
+window*. The window has `test_generate_unreachable_url_writes_nothing`, which
+drives the real job to an unreachable URL and proves the error reaches the
+status line with no file written. There is no GUI test for the unauthorised
+case: the window and the CLI run the same `mdeezl::bundle`, and the
+authentication path below it is proved by
+`test_unauthorised_repository_fails_without_prompting`. What is unproved is
+only that those two compose — which every other error path in this table
+shows they do. It is recorded here rather than left silent.
 
 ## What is not covered here
 
